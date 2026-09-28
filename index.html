@@ -193,17 +193,41 @@
   .table-scroll-top-inner{height:1px}
   .table-wrap{background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:auto; box-shadow:var(--shadow)}
   table{border-collapse:collapse; width:100%; min-width:1180px}
-  .filterRow th{padding:5px 8px; background:var(--surface); border-bottom:1px solid var(--border)}
-  .colFilter{
-    width:100%; box-sizing:border-box; border:1px solid var(--border); background:var(--bg); color:var(--text);
-    border-radius:6px; padding:4px 7px; font-size:11.5px; font-weight:500;
-  }
-  .colFilter:focus{outline:none; border-color:var(--accent)}
   thead th{
     text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-dim);
     padding:10px 12px; border-bottom:1px solid var(--border); background:var(--surface-2); position:sticky; top:0;
     white-space:nowrap;
   }
+  .th-inner{display:flex; align-items:center; gap:5px}
+  .filtroBtn{
+    border:none; background:none; cursor:pointer; color:var(--text-dim); font-size:10px; padding:2px 4px;
+    border-radius:4px; line-height:1;
+  }
+  .filtroBtn:hover{background:var(--surface); color:var(--text)}
+  .filtroBtn.active{color:var(--accent); background:var(--accent-soft)}
+  .filtroPanel{
+    position:absolute; top:100%; left:0; margin-top:4px; background:var(--surface); border:1px solid var(--border);
+    border-radius:10px; box-shadow:var(--shadow); width:220px; z-index:40; padding:8px; text-transform:none;
+    letter-spacing:normal; font-weight:500; color:var(--text); white-space:normal;
+  }
+  .filtroBusca{
+    width:100%; box-sizing:border-box; border:1px solid var(--border); background:var(--bg); color:var(--text);
+    border-radius:6px; padding:5px 7px; font-size:12px; margin-bottom:6px;
+  }
+  .filtroBusca:focus{outline:none; border-color:var(--accent)}
+  .filtroAcoes{display:flex; justify-content:space-between; gap:6px; margin-bottom:6px; font-size:11px}
+  .filtroAcoes button{
+    border:none; background:none; color:var(--accent-2); cursor:pointer; font-weight:700; font-size:11px; padding:2px 0;
+  }
+  .filtroAcoes button:hover{text-decoration:underline}
+  .filtroLista{max-height:220px; overflow-y:auto; border-top:1px solid var(--border); padding-top:6px}
+  .filtroItem{
+    display:flex; align-items:center; gap:7px; padding:4px 2px; font-size:12.5px; cursor:pointer; border-radius:5px;
+  }
+  .filtroItem:hover{background:var(--surface-2)}
+  .filtroItem input{width:14px; height:14px; flex:none}
+  .filtroItem span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .filtroVazio{color:var(--text-dim); font-size:12px; padding:6px 2px}
   tbody td{padding:9px 12px; border-bottom:1px solid var(--border); vertical-align:middle}
   tbody tr:last-child td{border-bottom:none}
   tbody tr:hover{background:var(--surface-2)}
@@ -298,25 +322,35 @@ let searchTerm = "";
 let selected = new Set();
 let dataDe = "";
 let dataAte = "";
-let columnFilters = {};       // { colId: "texto digitado" }
-let colunaFocoAtual = null;   // qual filtro de coluna estava com foco antes do ultimo render
+
+// Filtro estilo Excel: por coluna, um Set com os VALORES EXCLUIDOS (nao
+// marcados na lista de checkboxes). Coluna ausente daqui = nenhum valor
+// excluido = sem filtro nessa coluna.
+let columnFilters = {};
+let dropdownColunaAberta = null;  // id da coluna com o filtro aberto, ou null
+let dropdownBusca = "";           // texto digitado pra pesquisar na lista do filtro aberto
+let colunaFocoAtual = null;       // qual campo de busca estava com foco antes do ultimo render
 
 // Definicao das colunas da tabela, pra gerar o filtro estilo Excel e casar
 // com o texto que aparece em cada celula.
 const COLUNAS = [
-  { id: "numero_nf",     valor: n => n.numero_nf || "" },
-  { id: "fornecedor",    valor: n => n.fornecedor || "" },
-  { id: "empreendimento",valor: n => n.empreendimento || "" },
-  { id: "emissao",       valor: n => fmtData(n.data_emissao) },
-  { id: "dias_emissao",  valor: n => { const d = diasDesde(n.data_emissao); return d===null ? "" : String(d); } },
-  { id: "vencimento",    valor: n => n.vencimento ? fmtData(n.vencimento) : "" },
-  { id: "dias_venc",     valor: n => { const d = diasAteVencimento(n); return d===null ? "" : String(d); } },
-  { id: "urgencia",      valor: n => FAIXA_META[faixaDe(n)].label },
-  { id: "valor",         valor: n => fmtMoeda(n.valor_total) },
-  { id: "comprador",     valor: n => n.possivel_comprador || "" },
-  { id: "observacao",    valor: n => n.observacao || "" },
-  { id: "status",        valor: n => STATUS_LABELS[n.status_manual || "EXPORT"] },
-  { id: "pago_em",       valor: n => (n.pago && n.data_pagamento) ? fmtData(n.data_pagamento) : "" },
+  { id: "numero_nf",      label: "Nº NF",              valor: n => n.numero_nf || "" },
+  { id: "fornecedor",     label: "Fornecedor",         valor: n => n.fornecedor || "" },
+  { id: "empreendimento", label: "Empreendimento",     valor: n => n.empreendimento || "" },
+  { id: "emissao",        label: "Emissão",            valor: n => fmtData(n.data_emissao) },
+  { id: "dias_emissao",   label: "Dias emissão", num: true, width: "60px",
+    valor: n => { const d = diasDesde(n.data_emissao); return d===null ? "" : String(d); } },
+  { id: "vencimento",     label: "Vencimento",         valor: n => n.vencimento ? fmtData(n.vencimento) : "" },
+  { id: "dias_venc",      label: "Dias venc.", num: true, width: "60px",
+    valor: n => { const d = diasAteVencimento(n); return d===null ? "" : String(d); } },
+  { id: "urgencia",       label: "Urgência",           valor: n => FAIXA_META[faixaDe(n)].label },
+  { id: "valor",          label: "Valor", num: true,   valor: n => fmtMoeda(n.valor_total) },
+  { id: "comprador",      label: "Possível comprador", width: "170px", valor: n => n.possivel_comprador || "" },
+  { id: "observacao",     label: "Observação", width: "220px", valor: n => n.observacao || "" },
+  { id: "status",         label: "Status", width: "150px",
+    valor: n => STATUS_LABELS[n.status_manual || "EXPORT"] },
+  { id: "pago_em",        label: "Pago em", width: "110px",
+    valor: n => (n.pago && n.data_pagamento) ? fmtData(n.data_pagamento) : "" },
 ];
 let channel = null;
 
@@ -345,6 +379,17 @@ async function boot(){
   if(session) await loadAll();
 }
 boot();
+
+// Fecha o dropdown de filtro de coluna ao clicar fora dele (registrado uma
+// unica vez -- os cliques DENTRO do botao/painel do filtro chamam
+// stopPropagation, entao nunca chegam aqui).
+document.addEventListener("click", () => {
+  if(dropdownColunaAberta !== null){
+    dropdownColunaAberta = null;
+    dropdownBusca = "";
+    render();
+  }
+});
 
 /* ============================================================
    DATA LOADING
@@ -657,7 +702,10 @@ function passaPeriodo(n){
   return true;
 }
 
-function getFiltered(){
+// ignorarColuna: quando informado, o filtro daquela coluna NAO e aplicado --
+// usado pra calcular a lista de valores disponiveis no proprio dropdown dela
+// (as opcoes se estreitam pelos OUTROS filtros ativos, ao estilo Excel).
+function getFiltered({ ignorarColuna } = {}){
   return notas.filter(n => {
     if(activeTab === "PAGOS"){
       if(!n.pago) return false;
@@ -680,13 +728,22 @@ function getFiltered(){
       if(!hay.includes(t)) return false;
     }
     for(const c of COLUNAS){
-      const filtroTexto = columnFilters[c.id];
-      if(!filtroTexto) continue;
-      const valorCelula = String(c.valor(n) || "").toLowerCase();
-      if(!valorCelula.includes(filtroTexto.toLowerCase())) return false;
+      if(c.id === ignorarColuna) continue;
+      const excluidos = columnFilters[c.id];
+      if(!excluidos || !excluidos.size) continue;
+      const valorCelula = String(c.valor(n) || "");
+      if(excluidos.has(valorCelula)) return false;
     }
     return true;
   });
+}
+
+// Valores unicos disponiveis pra montar a lista de checkboxes do filtro de
+// uma coluna, considerando os demais filtros ja ativos (progressive narrowing).
+function opcoesColuna(col){
+  const vistos = new Set();
+  getFiltered({ ignorarColuna: col.id }).forEach(n => vistos.add(String(col.valor(n) || "")));
+  return [...vistos].sort((a,b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
 }
 
 function renderTable(rows){
@@ -695,24 +752,14 @@ function renderTable(rows){
       <thead>
         <tr>
           <th style="width:34px"><input type="checkbox" class="checkbox" id="checkAll" /></th>
-          <th>Nº NF</th>
-          <th>Fornecedor</th>
-          <th>Empreendimento</th>
-          <th>Emissão</th>
-          <th class="num" style="width:60px">Dias emissão</th>
-          <th>Vencimento</th>
-          <th class="num" style="width:60px">Dias venc.</th>
-          <th>Urgência</th>
-          <th class="num">Valor</th>
-          <th style="width:170px">Possível comprador</th>
-          <th style="width:220px">Observação</th>
-          <th style="width:150px">Status</th>
-          <th style="width:110px">Pago em</th>
-        </tr>
-        <tr class="filterRow">
-          <th></th>
           ${COLUNAS.map(c => `
-            <th><input type="text" class="colFilter" data-colfilter="${c.id}" placeholder="Filtrar..." value="${(columnFilters[c.id]||"").replace(/"/g,'&quot;')}" /></th>
+            <th ${c.width ? `style="width:${c.width}"` : ""}>
+              <div class="th-inner">
+                <span>${c.label}</span>
+                <button type="button" class="filtroBtn ${columnFilters[c.id] && columnFilters[c.id].size ? 'active' : ''}" data-filtrocol="${c.id}" title="Filtrar ${c.label}">▾</button>
+              </div>
+              ${dropdownColunaAberta === c.id ? renderDropdownFiltro(c) : ""}
+            </th>
           `).join("")}
         </tr>
       </thead>
@@ -720,6 +767,38 @@ function renderTable(rows){
         ${rows.map(rowHtml).join("")}
       </tbody>
     </table>
+  `;
+}
+
+function renderDropdownFiltro(col){
+  const busca = dropdownBusca.toLowerCase();
+  const todasOpcoes = opcoesColuna(col);
+  const opcoes = busca ? todasOpcoes.filter(v => v.toLowerCase().includes(busca)) : todasOpcoes;
+  const excluidos = columnFilters[col.id] || new Set();
+  const todasMarcadas = opcoes.length > 0 && opcoes.every(v => !excluidos.has(v));
+
+  return `
+    <div class="filtroPanel" data-filtropanel="${col.id}">
+      <input type="text" class="filtroBusca" id="filtroBusca" placeholder="Pesquisar..." value="${dropdownBusca.replace(/"/g,'&quot;')}" />
+      <div class="filtroAcoes">
+        <button type="button" data-filtroacao="limpar" data-col="${col.id}">Limpar filtro</button>
+        <button type="button" data-filtroacao="fechar">Fechar</button>
+      </div>
+      <div class="filtroLista">
+        ${opcoes.length ? `
+          <label class="filtroItem">
+            <input type="checkbox" data-filtrosel="__tudo__" data-col="${col.id}" ${todasMarcadas ? "checked" : ""} />
+            <span><b>Selecionar tudo</b></span>
+          </label>
+          ${opcoes.map(v => `
+            <label class="filtroItem">
+              <input type="checkbox" data-filtrosel="${encodeURIComponent(v)}" data-col="${col.id}" ${excluidos.has(v) ? "" : "checked"} />
+              <span>${(v || "<em>(vazio)</em>")}</span>
+            </label>
+          `).join("")}
+        ` : `<div class="filtroVazio">Nenhum valor pra mostrar.</div>`}
+      </div>
+    </div>
   `;
 }
 
@@ -782,11 +861,71 @@ function wireApp(filtered){
   document.getElementById("dataAte").onchange = (e) => { dataAte = e.target.value; render(); };
   document.getElementById("btnLimparPeriodo")?.addEventListener("click", () => { dataDe = ""; dataAte = ""; render(); });
 
-  document.querySelectorAll(".colFilter").forEach(el => {
-    el.oninput = () => {
-      const col = el.dataset.colfilter;
-      columnFilters[col] = el.value;
-      colunaFocoAtual = col;
+  // Botao "▾" de cada coluna: abre/fecha o dropdown de filtro estilo Excel.
+  document.querySelectorAll("[data-filtrocol]").forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const col = btn.dataset.filtrocol;
+      dropdownColunaAberta = (dropdownColunaAberta === col) ? null : col;
+      dropdownBusca = "";
+      colunaFocoAtual = dropdownColunaAberta ? "__filtroBusca__" : null;
+      render();
+    };
+  });
+
+  // Campo de pesquisa dentro do dropdown aberto (so filtra a LISTA de
+  // checkboxes exibida, nao a tabela).
+  const filtroBuscaEl = document.getElementById("filtroBusca");
+  if(filtroBuscaEl){
+    filtroBuscaEl.oninput = () => {
+      dropdownBusca = filtroBuscaEl.value;
+      colunaFocoAtual = "__filtroBusca__";
+      render();
+    };
+  }
+
+  document.querySelectorAll("[data-filtroacao]").forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const acao = btn.dataset.filtroacao;
+      if(acao === "limpar"){
+        const col = btn.dataset.col;
+        delete columnFilters[col];
+        dropdownColunaAberta = null;
+        dropdownBusca = "";
+      } else if(acao === "fechar"){
+        dropdownColunaAberta = null;
+        dropdownBusca = "";
+      }
+      colunaFocoAtual = null;
+      render();
+    };
+  });
+
+  // Checkbox "Selecionar tudo" e checkboxes individuais de cada valor: o
+  // Set guardado e' o de valores EXCLUIDOS (desmarcados).
+  document.querySelectorAll("[data-filtrosel]").forEach(cb => {
+    cb.onclick = (e) => e.stopPropagation();
+    cb.onchange = () => {
+      const col = cb.dataset.col;
+      const c = COLUNAS.find(x => x.id === col);
+      if(!c) return;
+      if(!columnFilters[col]) columnFilters[col] = new Set();
+      const excluidos = columnFilters[col];
+
+      if(cb.dataset.filtrosel === "__tudo__"){
+        const opcoesVisiveis = opcoesColuna(c).filter(v =>
+          !dropdownBusca || v.toLowerCase().includes(dropdownBusca.toLowerCase())
+        );
+        if(cb.checked) opcoesVisiveis.forEach(v => excluidos.delete(v));
+        else opcoesVisiveis.forEach(v => excluidos.add(v));
+      } else {
+        const valor = decodeURIComponent(cb.dataset.filtrosel);
+        if(cb.checked) excluidos.delete(valor);
+        else excluidos.add(valor);
+      }
+      if(!excluidos.size) delete columnFilters[col];
+      colunaFocoAtual = "__filtroBusca__";
       render();
     };
   });
@@ -797,9 +936,9 @@ function wireApp(filtered){
     const si = document.getElementById("searchInput");
     si.focus();
     si.setSelectionRange(si.value.length, si.value.length);
-  } else if(colunaFocoAtual){
-    const cf = document.querySelector(`[data-colfilter="${colunaFocoAtual}"]`);
-    if(cf){ cf.focus(); cf.setSelectionRange(cf.value.length, cf.value.length); }
+  } else if(colunaFocoAtual === "__filtroBusca__"){
+    const fb = document.getElementById("filtroBusca");
+    if(fb){ fb.focus(); fb.setSelectionRange(fb.value.length, fb.value.length); }
   } else {
     const si = document.getElementById("searchInput");
     si.focus();
