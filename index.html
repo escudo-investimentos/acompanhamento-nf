@@ -156,6 +156,8 @@
     border:none; background:transparent; padding:7px 13px; border-radius:7px; font-weight:600; font-size:12.5px; color:var(--text-dim);
   }
   .tab.active{background:var(--surface); color:var(--text); box-shadow:var(--shadow)}
+  .tab.pagos{color:var(--good)}
+  .tab.pagos.active{color:var(--good)}
   .spacer{flex:1}
   .search{
     display:flex; align-items:center; gap:7px; background:var(--surface); border:1px solid var(--border);
@@ -164,6 +166,18 @@
   .search input{border:none; background:none; width:100%; outline:none}
   select.filter{
     border:1px solid var(--border); background:var(--surface); border-radius:8px; padding:7px 10px; font-size:12.5px; font-weight:600;
+  }
+  .dateRange{
+    display:flex; align-items:center; gap:8px; background:var(--surface); border:1px solid var(--border);
+    border-radius:8px; padding:6px 10px; font-size:12px; color:var(--text-dim); font-weight:600;
+  }
+  .dateRange label{display:flex; align-items:center; gap:5px}
+  .dateRange input[type="date"]{
+    border:none; background:none; font-size:12.5px; color:var(--text); font-family:inherit; padding:2px 0;
+  }
+  .sugestaoTag{
+    display:inline-block; margin-top:4px; font-size:10px; font-weight:700; color:var(--good);
+    background:var(--good-soft); border-radius:5px; padding:2px 6px;
   }
 
   /* ---------- Bulk bar ---------- */
@@ -274,6 +288,8 @@ let activeTab = "EXPORT";
 let activeFaixa = "TODAS";
 let searchTerm = "";
 let selected = new Set();
+let dataDe = "";
+let dataAte = "";
 let channel = null;
 
 const app = document.getElementById("app");
@@ -527,16 +543,25 @@ function renderApp(){
             <button class="tab ${activeTab===s?'active':''}" data-tab="${s}">
               ${STATUS_LABELS[s]} · ${counts[s]||0}
             </button>`).join("")}
+          <button class="tab pagos ${activeTab==='PAGOS'?'active':''}" data-tab="PAGOS">
+            ✓ Pagos · ${counts.PAGOS||0}
+          </button>
         </div>
         <select class="filter" id="faixaFilter">
           <option value="TODAS" ${activeFaixa==='TODAS'?'selected':''}>Todas as urgências</option>
           <option value="VENCIDO" ${activeFaixa==='VENCIDO'?'selected':''}>Vencido</option>
           <option value="ACIMA_20" ${activeFaixa==='ACIMA_20'?'selected':''}>Acima de 20 dias</option>
           <option value="15_A_20" ${activeFaixa==='15_A_20'?'selected':''}>15 a 20 dias</option>
+          <option value="MAIS_DE_15_EMISSAO" ${activeFaixa==='MAIS_DE_15_EMISSAO'?'selected':''}>Acima de 15 dias (da emissão)</option>
           <option value="ABAIXO_15" ${activeFaixa==='ABAIXO_15'?'selected':''}>Abaixo de 15 dias</option>
           <option value="SEM_IDENTIFICACAO" ${activeFaixa==='SEM_IDENTIFICACAO'?'selected':''}>Sem identificação</option>
           <option value="SOLICITAR_DESCONHECIMENTO" ${activeFaixa==='SOLICITAR_DESCONHECIMENTO'?'selected':''}>Solicitar desconhecimento (+60d)</option>
         </select>
+        <div class="dateRange">
+          <label>De <input type="date" id="dataDe" value="${dataDe}" /></label>
+          <label>Até <input type="date" id="dataAte" value="${dataAte}" /></label>
+          ${(dataDe||dataAte) ? `<button class="btn small ghost" id="btnLimparPeriodo" title="Limpar período">✕</button>` : ""}
+        </div>
         <div class="spacer"></div>
         <div class="search">
           🔎 <input id="searchInput" placeholder="Buscar nº, fornecedor..." value="${searchTerm}" />
@@ -545,10 +570,12 @@ function renderApp(){
 
       <div class="bulkbar ${selected.size ? 'show':''}" id="bulkbar">
         <strong>${selected.size}</strong> selecionada(s)
-        <button class="btn small" data-bulk="EXPORT">Voltar p/ acompanhamento</button>
-        <button class="btn small" data-bulk="NOTA_DESCONHECIDA">Marcar nota desconhecida</button>
-        <button class="btn small" data-bulk="FEITO_DESCONHECIMENTO">Marcar feito desconhecimento</button>
-        <button class="btn small danger" data-bulk="LIXO">Mover p/ lixo</button>
+        ${activeTab !== 'PAGOS' ? `
+          <button class="btn small" data-bulk="EXPORT">Voltar p/ acompanhamento</button>
+          <button class="btn small" data-bulk="NOTA_DESCONHECIDA">Marcar nota desconhecida</button>
+          <button class="btn small" data-bulk="FEITO_DESCONHECIMENTO">Marcar feito desconhecimento</button>
+          <button class="btn small danger" data-bulk="LIXO">Mover p/ lixo</button>
+        ` : `<span style="color:var(--text-dim); font-size:12.5px">Notas pagas são atualizadas automaticamente pelo Sienge.</span>`}
         <div class="spacer"></div>
         <button class="btn small primary" id="btnCobranca">✉ Disparar cobrança</button>
       </div>
@@ -572,12 +599,16 @@ function renderApp(){
 
 function getTabCounts(){
   const c = {};
-  notas.forEach(n => { const s = n.status_manual || "EXPORT"; c[s] = (c[s]||0)+1; });
+  notas.forEach(n => {
+    if(n.pago){ c.PAGOS = (c.PAGOS||0)+1; return; }
+    const s = n.status_manual || "EXPORT";
+    c[s] = (c[s]||0)+1;
+  });
   return c;
 }
 
 function getStats(){
-  const base = notas.filter(n => (n.status_manual||"EXPORT") === "EXPORT");
+  const base = notas.filter(n => (n.status_manual||"EXPORT") === "EXPORT" && !n.pago);
   let vencido=0, acima=0, semid=0, solicitarDesc=0, valor=0;
   base.forEach(n => {
     const f = faixaDe(n);
@@ -590,13 +621,33 @@ function getStats(){
   return { total: base.length, vencido, acima, semid, solicitarDesc, valor };
 }
 
+function passaPeriodo(n){
+  if(!n.data_emissao) return !dataDe && !dataAte;
+  if(dataDe && n.data_emissao < dataDe) return false;
+  if(dataAte && n.data_emissao > dataAte) return false;
+  return true;
+}
+
 function getFiltered(){
   return notas.filter(n => {
-    if((n.status_manual || "EXPORT") !== activeTab) return false;
-    if(activeFaixa !== "TODAS" && faixaDe(n) !== activeFaixa) return false;
+    if(activeTab === "PAGOS"){
+      if(!n.pago) return false;
+    } else {
+      if(n.pago) return false;
+      if((n.status_manual || "EXPORT") !== activeTab) return false;
+    }
+    if(activeFaixa !== "TODAS"){
+      if(activeFaixa === "MAIS_DE_15_EMISSAO"){
+        const d = diasDesde(n.data_emissao);
+        if(d === null || d <= 15) return false;
+      } else if(faixaDe(n) !== activeFaixa){
+        return false;
+      }
+    }
+    if(!passaPeriodo(n)) return false;
     if(searchTerm){
       const t = searchTerm.toLowerCase();
-      const hay = `${n.numero_nf||""} ${n.fornecedor||""} ${n.possivel_comprador||""}`.toLowerCase();
+      const hay = `${n.numero_nf||""} ${n.fornecedor||""} ${n.possivel_comprador||""} ${n.empreendimento||""}`.toLowerCase();
       if(!hay.includes(t)) return false;
     }
     return true;
@@ -611,6 +662,7 @@ function renderTable(rows){
           <th style="width:34px"><input type="checkbox" class="checkbox" id="checkAll" /></th>
           <th>Nº NF</th>
           <th>Fornecedor</th>
+          <th>Empreendimento</th>
           <th>Emissão</th>
           <th class="num" style="width:60px">Dias emissão</th>
           <th>Vencimento</th>
@@ -620,6 +672,7 @@ function renderTable(rows){
           <th style="width:170px">Possível comprador</th>
           <th style="width:220px">Observação</th>
           <th style="width:150px">Status</th>
+          <th style="width:110px">Pago em</th>
         </tr>
       </thead>
       <tbody>
@@ -644,6 +697,7 @@ function rowHtml(n){
           ${n.empresa ? `<span class="emp">${n.empresa}</span>` : ""}
         </div>
       </td>
+      <td>${n.empreendimento || "—"}</td>
       <td class="mono">${fmtData(n.data_emissao)}</td>
       <td class="num mono">${diasEmissao === null ? "—" : diasEmissao}</td>
       <td class="mono">${n.vencimento ? fmtData(n.vencimento) : "—"}</td>
@@ -655,6 +709,7 @@ function rowHtml(n){
           <option value="">— selecionar —</option>
           ${compradores.map(c => `<option value="${c.nome}" ${n.possivel_comprador===c.nome?'selected':''}>${c.nome}</option>`).join("")}
         </select>
+        ${n.comprador_sugerido_sienge && n.possivel_comprador ? `<span class="sugestaoTag" title="Sugerido automaticamente a partir do pedido de compra no Sienge">via Sienge</span>` : ""}
       </td>
       <td>
         <input class="rowtext" type="text" data-field="observacao" data-id="${n.id}" value="${(n.observacao||"").replace(/"/g,'&quot;')}" placeholder="—" />
@@ -664,6 +719,7 @@ function rowHtml(n){
           ${STATUS_ORDER.map(s => `<option value="${s}" ${(n.status_manual||'EXPORT')===s?'selected':''}>${STATUS_LABELS[s]}</option>`).join("")}
         </select>
       </td>
+      <td class="mono">${n.pago && n.data_pagamento ? fmtData(n.data_pagamento) : "—"}</td>
     </tr>
   `;
 }
@@ -683,6 +739,10 @@ function wireApp(filtered){
   document.getElementById("searchInput").focus();
   const si = document.getElementById("searchInput");
   si.setSelectionRange(si.value.length, si.value.length);
+
+  document.getElementById("dataDe").onchange = (e) => { dataDe = e.target.value; render(); };
+  document.getElementById("dataAte").onchange = (e) => { dataAte = e.target.value; render(); };
+  document.getElementById("btnLimparPeriodo")?.addEventListener("click", () => { dataDe = ""; dataAte = ""; render(); });
 
   const checkAll = document.getElementById("checkAll");
   if(checkAll){
@@ -719,8 +779,11 @@ function wireApp(filtered){
 
 async function saveField(id, field, value){
   const patch = { [field]: value, atualizado_em: new Date().toISOString() };
+  // Se alguem troca manualmente o comprador sugerido pelo Sienge, marca como
+  // manual pra o sync.py nao sobrescrever essa correcao na proxima rodada.
+  if(field === "possivel_comprador") patch.comprador_sugerido_sienge = false;
   const nota = notas.find(n => n.id === id);
-  if(nota) nota[field] = value; // otimista
+  if(nota) Object.assign(nota, patch); // otimista
   const { error } = await sb.from("notas_fiscais").update(patch).eq("id", id);
   if(error){ toast("Erro ao salvar: " + error.message); }
   else toast("Salvo");
