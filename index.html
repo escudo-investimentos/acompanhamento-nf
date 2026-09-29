@@ -300,6 +300,11 @@ const SUPABASE_URL = "https://qvuvyaoaurfbutvipobz.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_e75Dd_wX1uzXGDmC0ePV0A_QwHJRKy2";
 const EMAIL_DOMAIN = "construtoraescudo.com.br";
 const CC_EMAILS = ["compras@construtoraescudo.com.br", "financeiro@construtoraescudo.com.br"];
+// Único e-mail que enxerga a aba de Aprovações e pode aprovar novos usuários.
+// Precisa ser IDÊNTICO ao usado em public.eh_admin() no banco (é o banco
+// quem realmente garante a permissão -- isso aqui só controla o que aparece
+// na tela).
+const ADMIN_EMAIL = "haroldo.pires@construtoraescudo.com.br";
 
 const STATUS_LABELS = {
   EXPORT: "Em acompanhamento",
@@ -317,6 +322,8 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let session = null;
 let notas = [];
 let compradores = [];
+let meuPerfil = null;        // {aprovado, email} do usuario logado -- null enquanto carrega
+let perfisPendentes = [];    // so preenchido pra quem e admin (aba Aprovacoes)
 let activeTab = "EXPORT";
 let activeFaixa = "TODAS";
 let searchTerm = "";
@@ -373,6 +380,7 @@ async function boot(){
   session = data.session;
   sb.auth.onAuthStateChange((_event, s) => {
     session = s;
+    meuPerfil = null;
     render();
     if(session) loadAll(); else stopRealtime();
   });
@@ -380,6 +388,10 @@ async function boot(){
   if(session) await loadAll();
 }
 boot();
+
+function isAdminUser(){
+  return !!session && (session.user.email || "").toLowerCase() === ADMIN_EMAIL.toLowerCase();
+}
 
 // Fecha o dropdown de filtro de coluna ao clicar fora dele (registrado uma
 // unica vez -- os cliques DENTRO do botao/painel do filtro chamam
@@ -396,8 +408,47 @@ document.addEventListener("click", () => {
    DATA LOADING
    ============================================================ */
 async function loadAll(){
+  await loadMeuPerfil();
+  // Quem ainda nao foi aprovado nao tem acesso as tabelas de notas/compradores
+  // mesmo (RLS bloqueia no banco) -- nem tenta carregar, so mostra a tela de
+  // espera.
+  if(!isAdminUser() && meuPerfil && !meuPerfil.aprovado){
+    render();
+    return;
+  }
   await Promise.all([loadCompradores(), loadNotas()]);
+  if(isAdminUser()) await loadPendentes();
   startRealtime();
+  render();
+}
+
+async function loadMeuPerfil(){
+  const { data, error } = await sb.from("perfis_usuarios")
+    .select("aprovado,email")
+    .eq("id", session.user.id)
+    .maybeSingle();
+  if(error){ console.error(error); meuPerfil = { aprovado: false }; return; }
+  // Se ainda nao existe linha (ex: usuario criado antes dessa funcionalidade
+  // existir), trata como aprovado pra nao travar quem ja usava o site.
+  meuPerfil = data || { aprovado: true };
+}
+
+async function loadPendentes(){
+  const { data, error } = await sb.from("perfis_usuarios")
+    .select("*")
+    .eq("aprovado", false)
+    .order("criado_em");
+  if(error){ console.error(error); return; }
+  perfisPendentes = data || [];
+}
+
+async function aprovarUsuario(id){
+  const { error } = await sb.from("perfis_usuarios")
+    .update({ aprovado: true, aprovado_em: new Date().toISOString(), aprovado_por: session.user.id })
+    .eq("id", id);
+  if(error){ toast("Erro ao aprovar: " + error.message); return; }
+  toast("Usuário aprovado!");
+  await loadPendentes();
   render();
 }
 
@@ -510,7 +561,36 @@ function compradorEmail(nome){
    ============================================================ */
 function render(){
   if(!session){ renderAuth(); return; }
+  if(meuPerfil === null){ renderCarregando(); return; }
+  if(!isAdminUser() && !meuPerfil.aprovado){ renderAguardandoAprovacao(); return; }
   renderApp();
+}
+
+function renderCarregando(){
+  app.innerHTML = `
+    <div class="auth-wrap">
+      <div class="auth-card" style="text-align:center">
+        <div class="mark" style="margin-left:auto; margin-right:auto"><img src="${LOGO_SRC}" alt="Escudo" /></div>
+        <p class="sub">Carregando…</p>
+      </div>
+    </div>`;
+}
+
+function renderAguardandoAprovacao(){
+  app.innerHTML = `
+    <div class="auth-wrap">
+      <div class="auth-card">
+        <div class="mark"><img src="${LOGO_SRC}" alt="Escudo" /></div>
+        <h2>Aguardando aprovação</h2>
+        <p class="sub">
+          Sua conta (${session.user.email}) foi criada, mas ainda precisa ser
+          aprovada por um administrador antes de acessar o sistema.
+          Avise quem administra o site.
+        </p>
+        <button class="btn" id="btnLogoutAguardando">Sair</button>
+      </div>
+    </div>`;
+  document.getElementById("btnLogoutAguardando").onclick = async () => { await sb.auth.signOut(); };
 }
 
 let authMode = "login";
@@ -582,6 +662,10 @@ async function handleAuthSubmit(e){
    MAIN APP
    ============================================================ */
 function renderApp(){
+  if(isAdminUser() && activeTab === "APROVACOES"){
+    renderAprovacoes();
+    return;
+  }
   const filtered = getFiltered();
   const counts = getTabCounts();
   const stats = getStats();
@@ -620,6 +704,10 @@ function renderApp(){
           <button class="tab pagos ${activeTab==='PAGOS'?'active':''}" data-tab="PAGOS">
             ✓ Pagos · ${counts.PAGOS||0}
           </button>
+          ${isAdminUser() ? `
+            <button class="tab ${activeTab==='APROVACOES'?'active':''}" data-tab="APROVACOES" style="margin-left:8px">
+              🔐 Aprovações${perfisPendentes.length ? ` · ${perfisPendentes.length}` : ""}
+            </button>` : ""}
         </div>
         <select class="filter" id="faixaFilter">
           <option value="TODAS" ${activeFaixa==='TODAS'?'selected':''}>Todas as urgências</option>
@@ -670,6 +758,57 @@ function renderApp(){
   `;
 
   wireApp(filtered);
+}
+
+function renderAprovacoes(){
+  app.innerHTML = `
+    <div class="topbar">
+      <div class="brand">
+        <div class="mark"><img src="${LOGO_SRC}" alt="Escudo" /></div>
+        <div>
+          <h1>Acompanhamento de NF-e</h1>
+          <small>Construtora Escudo</small>
+        </div>
+      </div>
+      <div class="who">
+        <span>${session.user.email}</span>
+        <button class="btn small ghost" id="btnVoltarApp">← Voltar</button>
+        <button class="btn small" id="btnLogout">Sair</button>
+      </div>
+    </div>
+    <main>
+      <h2 style="margin:0 0 4px">Aprovações de acesso</h2>
+      <p style="color:var(--text-dim); margin:0 0 20px">
+        Só quem estiver aprovado aqui consegue ver as notas fiscais no site.
+        Toda conta nova (@${EMAIL_DOMAIN}) cai nessa lista até você aprovar.
+      </p>
+      ${perfisPendentes.length ? `
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>E-mail</th><th>Cadastrado em</th><th style="width:140px">Ação</th></tr></thead>
+            <tbody>
+              ${perfisPendentes.map(p => `
+                <tr>
+                  <td>${p.email}</td>
+                  <td>${fmtData(p.criado_em)}</td>
+                  <td><button class="btn small primary" data-aprovar="${p.id}">✓ Aprovar</button></td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+      ` : `
+        <div class="empty">
+          <b>Nada pendente</b>
+          Nenhum cadastro esperando aprovação no momento.
+        </div>
+      `}
+    </main>
+  `;
+  document.getElementById("btnLogout").onclick = async () => { await sb.auth.signOut(); selected.clear(); };
+  document.getElementById("btnVoltarApp").onclick = () => { activeTab = "EXPORT"; render(); };
+  document.querySelectorAll("[data-aprovar]").forEach(btn => {
+    btn.onclick = () => aprovarUsuario(btn.dataset.aprovar);
+  });
 }
 
 function getTabCounts(){
