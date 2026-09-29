@@ -1342,9 +1342,13 @@ function paramsUri(obj){
 // conta correta.
 function buildOutlookWebLink(nomeComprador, emailComprador, rows){
   const { subject, body } = cobrancaTexto(nomeComprador, rows);
+  // OBS: o Outlook Web so reconhece varios enderecos no "cc" separados por
+  // VIRGULA -- com ponto-e-virgula (que e o padrao do Outlook desktop/VBA)
+  // ele descarta o campo inteiro em silencio, sem erro nenhum, foi o que
+  // deixou o Cc vazio no teste.
   const query = paramsUri({
     to: EMAIL_PARA_COBRANCA,
-    cc: `${emailComprador};${EMAIL_FINANCEIRO}`,
+    cc: `${emailComprador},${EMAIL_FINANCEIRO}`,
     subject, body,
   });
   return `https://outlook.office.com/mail/deeplink/compose?${query}`;
