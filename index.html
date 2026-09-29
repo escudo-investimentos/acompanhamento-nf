@@ -200,6 +200,11 @@
     white-space:nowrap;
   }
   .th-inner{display:flex; align-items:center; gap:5px}
+  .thSortBtn{
+    border:none; background:none; cursor:pointer; color:inherit; font:inherit; font-weight:inherit;
+    text-transform:inherit; letter-spacing:inherit; padding:0; white-space:nowrap;
+  }
+  .thSortBtn:hover{color:var(--accent)}
   .filtroBtn{
     border:none; background:none; cursor:pointer; color:var(--text-dim); font-size:10px; padding:2px 4px;
     border-radius:4px; line-height:1;
@@ -345,21 +350,30 @@ const COLUNAS = [
   { id: "numero_nf",      label: "Nº NF",              valor: n => n.numero_nf || "" },
   { id: "fornecedor",     label: "Fornecedor",         valor: n => n.fornecedor || "" },
   { id: "empreendimento", label: "Empreendimento",     valor: n => n.empreendimento || "" },
-  { id: "emissao",        label: "Emissão",            valor: n => fmtData(n.data_emissao) },
+  { id: "emissao",        label: "Emissão",            valor: n => fmtData(n.data_emissao),
+    sortValor: n => n.data_emissao || "" },
   { id: "dias_emissao",   label: "Dias emissão", num: true, width: "60px",
-    valor: n => { const d = diasDesde(n.data_emissao); return d===null ? "" : String(d); } },
-  { id: "vencimento",     label: "Vencimento",         valor: n => n.vencimento ? fmtData(n.vencimento) : "" },
+    valor: n => { const d = diasDesde(n.data_emissao); return d===null ? "" : String(d); },
+    sortValor: n => { const d = diasDesde(n.data_emissao); return d===null ? -Infinity : d; } },
+  { id: "vencimento",     label: "Vencimento",         valor: n => n.vencimento ? fmtData(n.vencimento) : "",
+    sortValor: n => n.vencimento || "" },
   { id: "dias_venc",      label: "Dias venc.", num: true, width: "60px",
-    valor: n => { const d = diasAteVencimento(n); return d===null ? "" : String(d); } },
+    valor: n => { const d = diasAteVencimento(n); return d===null ? "" : String(d); },
+    sortValor: n => { const d = diasAteVencimento(n); return d===null ? Infinity : d; } },
   { id: "urgencia",       label: "Urgência",           valor: n => FAIXA_META[faixaDe(n)].label },
-  { id: "valor",          label: "Valor", num: true,   valor: n => fmtMoeda(n.valor_total) },
+  { id: "valor",          label: "Valor", num: true,   valor: n => fmtMoeda(n.valor_total),
+    sortValor: n => Number(n.valor_total || 0) },
   { id: "comprador",      label: "Possível comprador", width: "170px", valor: n => n.possivel_comprador || "" },
   { id: "observacao",     label: "Observação", width: "220px", valor: n => n.observacao || "" },
   { id: "status",         label: "Status", width: "150px",
     valor: n => STATUS_LABELS[n.status_manual || "EXPORT"] },
   { id: "pago_em",        label: "Pago em", width: "110px",
-    valor: n => (n.pago && n.data_pagamento) ? fmtData(n.data_pagamento) : "" },
+    valor: n => (n.pago && n.data_pagamento) ? fmtData(n.data_pagamento) : "",
+    sortValor: n => n.data_pagamento || "" },
 ];
+// Ordenacao ativa da tabela (estilo Excel: clica no nome da coluna).
+let sortCol = null;
+let sortDir = "asc"; // "asc" | "desc"
 let channel = null;
 
 const app = document.getElementById("app");
@@ -388,6 +402,21 @@ async function boot(){
   if(session) await loadAll();
 }
 boot();
+
+// Corrige o site "travando" e precisando de F5 depois que a aba fica em
+// segundo plano por um tempo (o Chrome suspende/descarta abas inativas e
+// o canal em tempo real do Supabase cai). Quando a aba volta a ficar
+// visivel, revalida a sessao, recarrega os dados e reconecta o realtime
+// se precisar -- sem exigir reload manual.
+document.addEventListener("visibilitychange", () => {
+  if(document.visibilityState !== "visible" || !session) return;
+  sb.auth.getSession().then(({ data }) => {
+    session = data.session;
+    if(!session){ render(); return; }
+    if(!channel) startRealtime();
+    loadAll();
+  });
+});
 
 function isAdminUser(){
   return !!session && (session.user.email || "").toLowerCase() === ADMIN_EMAIL.toLowerCase();
@@ -666,7 +695,7 @@ function renderApp(){
     renderAprovacoes();
     return;
   }
-  const filtered = getFiltered();
+  const filtered = ordenarLista(getFiltered());
   const counts = getTabCounts();
   const stats = getStats();
 
@@ -724,6 +753,10 @@ function renderApp(){
           <label>Até <input type="date" id="dataAte" value="${dataAte}" /></label>
           ${(dataDe||dataAte) ? `<button class="btn small ghost" id="btnLimparPeriodo" title="Limpar período">✕</button>` : ""}
         </div>
+        ${Object.keys(columnFilters).length ? `
+          <button class="btn small ghost" id="btnLimparFiltrosColuna" title="Remove todos os filtros de coluna (▾)">
+            ✕ Filtros de coluna (${Object.keys(columnFilters).length})
+          </button>` : ""}
         <div class="spacer"></div>
         <div class="search">
           🔎 <input id="searchInput" placeholder="Buscar nº, fornecedor..." value="${searchTerm}" />
@@ -744,11 +777,7 @@ function renderApp(){
 
       <div class="table-scroll-top" id="tableScrollTop"><div class="table-scroll-top-inner" id="tableScrollTopInner"></div></div>
       <div class="table-wrap" id="tableWrap">
-        ${filtered.length ? renderTable(filtered) : `
-          <div class="empty">
-            <b>Nada por aqui</b>
-            Nenhuma nota encontrada com os filtros atuais.
-          </div>`}
+        ${renderTable(filtered)}
       </div>
       <div class="foot">
         <span>${filtered.length} nota(s) exibida(s)</span>
@@ -886,6 +915,25 @@ function opcoesColuna(col){
   return [...vistos].sort((a,b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
 }
 
+// Ordenacao estilo Excel: clica no nome da coluna pra alternar crescente/
+// decrescente. Usa sortValor (numero ou data ISO) quando a coluna tem, senao
+// cai pro texto formatado da propria celula (valor()).
+function ordenarLista(lista){
+  const col = COLUNAS.find(c => c.id === sortCol);
+  if(!col) return lista;
+  const extrai = c => n => c.sortValor ? c.sortValor(n) : String(c.valor(n) || "").toLowerCase();
+  const chave = extrai(col);
+  const copia = [...lista];
+  copia.sort((a, b) => {
+    const va = chave(a), vb = chave(b);
+    let cmp;
+    if(typeof va === "number" && typeof vb === "number") cmp = va - vb;
+    else cmp = String(va).localeCompare(String(vb), "pt-BR", { numeric: true, sensitivity: "base" });
+    return sortDir === "asc" ? cmp : -cmp;
+  });
+  return copia;
+}
+
 function renderTable(rows){
   return `
     <table>
@@ -895,7 +943,9 @@ function renderTable(rows){
           ${COLUNAS.map(c => `
             <th ${c.width ? `style="width:${c.width}"` : ""}>
               <div class="th-inner">
-                <span>${c.label}</span>
+                <button type="button" class="thSortBtn" data-sortcol="${c.id}" title="Ordenar por ${c.label}">
+                  ${c.label}${sortCol === c.id ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+                </button>
                 <button type="button" class="filtroBtn ${columnFilters[c.id] && columnFilters[c.id].size ? 'active' : ''}" data-filtrocol="${c.id}" title="Filtrar ${c.label}">▾</button>
               </div>
               ${dropdownColunaAberta === c.id ? renderDropdownFiltro(c) : ""}
@@ -904,7 +954,13 @@ function renderTable(rows){
         </tr>
       </thead>
       <tbody>
-        ${rows.map(rowHtml).join("")}
+        ${rows.length ? rows.map(rowHtml).join("") : `
+          <tr><td colspan="${COLUNAS.length + 1}">
+            <div class="empty">
+              <b>Nada por aqui</b>
+              Nenhuma nota encontrada com os filtros atuais. Use o botão "▾" de alguma coluna pra revisar o filtro, ou "Filtros de coluna" acima da tabela pra limpar tudo de uma vez.
+            </div>
+          </td></tr>`}
       </tbody>
     </table>
   `;
@@ -1000,6 +1056,19 @@ function wireApp(filtered){
   document.getElementById("dataDe").onchange = (e) => { dataDe = e.target.value; render(); };
   document.getElementById("dataAte").onchange = (e) => { dataAte = e.target.value; render(); };
   document.getElementById("btnLimparPeriodo")?.addEventListener("click", () => { dataDe = ""; dataAte = ""; render(); });
+  document.getElementById("btnLimparFiltrosColuna")?.addEventListener("click", () => { columnFilters = {}; render(); });
+
+  // Ordenar por coluna (estilo Excel): clica de novo na mesma coluna alterna
+  // crescente/decrescente; clica em outra coluna comeca crescente.
+  document.querySelectorAll("[data-sortcol]").forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const col = btn.dataset.sortcol;
+      if(sortCol === col) sortDir = sortDir === "asc" ? "desc" : "asc";
+      else { sortCol = col; sortDir = "asc"; }
+      render();
+    };
+  });
 
   // Botao "▾" de cada coluna: abre/fecha o dropdown de filtro estilo Excel.
   document.querySelectorAll("[data-filtrocol]").forEach(btn => {
