@@ -304,7 +304,6 @@ const LOGO_SRC = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAKAAAACgCAIAAAAE
 const SUPABASE_URL = "https://qvuvyaoaurfbutvipobz.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_e75Dd_wX1uzXGDmC0ePV0A_QwHJRKy2";
 const EMAIL_DOMAIN = "construtoraescudo.com.br";
-const CC_EMAILS = ["compras@construtoraescudo.com.br", "financeiro@construtoraescudo.com.br"];
 // Único e-mail que enxerga a aba de Aprovações e pode aprovar novos usuários.
 // Precisa ser IDÊNTICO ao usado em public.eh_admin() no banco (é o banco
 // quem realmente garante a permissão -- isso aqui só controla o que aparece
@@ -1258,7 +1257,7 @@ function openCobrancaModal(){
 
   modal.innerHTML = `
     <h3>Disparar e-mail de cobrança</h3>
-    <p class="sub">Um e-mail será montado por comprador, com cópia pra compras e financeiro. "Abrir no Outlook Web" abre já pronto numa aba do navegador, na conta que você já usa lá.</p>
+    <p class="sub">Um e-mail será montado por comprador, pra Compras com cópia pro comprador e financeiro — igual já era feito na planilha. "Abrir no Outlook Web" abre já pronto numa aba do navegador, na conta que você já usa lá.</p>
     ${groupKeys.length ? groupKeys.map(nome => `
       <div class="maillink">
         <div>
@@ -1266,8 +1265,8 @@ function openCobrancaModal(){
           <div class="cnt">${groups[nome].notas.length} nota(s) · ${groups[nome].email}</div>
         </div>
         <div style="display:flex; gap:8px; flex:none">
-          <a class="btn small primary" href="${buildOutlookWebLink(groups[nome].email, groups[nome].notas)}" target="_blank" rel="noopener">Abrir no Outlook Web</a>
-          <a class="btn small ghost" href="${buildMailto(groups[nome].email, groups[nome].notas)}" title="Abrir no app de e-mail padrão do computador">app de e-mail</a>
+          <a class="btn small primary" href="${buildOutlookWebLink(nome, groups[nome].email, groups[nome].notas)}" target="_blank" rel="noopener">Abrir no Outlook Web</a>
+          <a class="btn small ghost" href="${buildMailto(nome, groups[nome].email, groups[nome].notas)}" title="Abrir no app de e-mail padrão do computador">app de e-mail</a>
         </div>
       </div>
     `).join("") : `<p style="color:var(--text-dim); font-size:13px">Nenhuma nota selecionada tem um comprador com e-mail cadastrado.</p>`}
@@ -1283,13 +1282,57 @@ function openCobrancaModal(){
   document.getElementById("modalBg").classList.add("show");
 }
 
-function cobrancaTexto(rows){
-  const subject = `Cobrança de identificação – ${rows.length} nota(s) fiscal(is) pendente(s)`;
-  const linhas = rows.map(n =>
-    `• NF ${n.numero_nf} — ${n.fornecedor || "fornecedor não identificado"} — emitida em ${fmtData(n.data_emissao)} — ${fmtMoeda(n.valor_total)}`
-  ).join("\n");
-  const body = `Olá,\n\nAs notas fiscais abaixo estão pendentes de identificação/tratamento:\n\n${linhas}\n\nPor favor, verificar e retornar o quanto antes.\n\nObrigado.`;
+// Mesmo texto e mesma logica de destinatarios que ja eram usados na planilha
+// (macro EnviarEmailsCobranca.vba): PARA = compras, CC = comprador + financeiro,
+// saudacao com o nome do comprador, e o mesmo texto padrao ja em uso.
+const EMAIL_PARA_COBRANCA = "compras@construtoraescudo.com.br";
+const EMAIL_FINANCEIRO = "financeiro@construtoraescudo.com.br";
+
+function cobrancaTexto(nomeComprador, rows){
+  const subject = rows.length === 1
+    ? `Nota Fiscal ${rows[0].numero_nf} - Fornecedor ${rows[0].fornecedor || "não identificado"} - mais de 15 dias sem retorno`
+    : `${rows.length} notas fiscais - mais de 15 dias sem retorno`;
+
+  const blocoNotas = rows.map(n =>
+    `Nota Fiscal: ${n.numero_nf}\n` +
+    `Fornecedor: ${n.fornecedor || "não identificado"}\n` +
+    `Data de Emissão: ${fmtData(n.data_emissao)}\n` +
+    `Valor: ${fmtMoeda(n.valor_total)}`
+  ).join("\n\n");
+
+  const body =
+`Olá, ${nomeComprador}.
+
+Identificamos em nosso acompanhamento de Notas Fiscais Eletrônicas que a(s) nota(s) abaixo permanece(m) há mais de 15 dias da data de emissão sem a devida identificação/tratativa:
+
+${blocoNotas}
+
+Dessa forma, solicitamos, por gentileza, um posicionamento quanto à situação da(s) nota(s) mencionada(s), informando se:
+
+- a nota fiscal já foi analisada e/ou tratada;
+- existe alguma pendência ou inconsistência que esteja impedindo sua tratativa; ou
+- caso a nota não seja devida, podemos proceder com o respectivo desconhecimento da operação.
+
+Pedimos, por gentileza, que nos retornem com a orientação quanto à providência a ser adotada, para que possamos manter o acompanhamento atualizado e realizar a devida regularização da pendência.
+
+Caso a nota já tenha sido tratada, solicitamos apenas a confirmação para que possamos atualizar nosso controle.
+
+Ficamos no aguardo do seu retorno.
+
+Atenciosamente,
+Financeiro`;
+
   return { subject, body };
+}
+
+// Monta a query string codificando espaco como %20 (padrao de URI), nao
+// como "+" (padrao de formulario) -- o URLSearchParams usa "+" pra espaco,
+// o que faz o Outlook Web mostrar "+" literal no corpo do e-mail em vez de
+// espaco. Por isso a montagem manual abaixo em vez de URLSearchParams.
+function paramsUri(obj){
+  return Object.entries(obj)
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .join("&");
 }
 
 // Link direto pro Outlook na Web (outlook.office.com), que abre a
@@ -1297,20 +1340,25 @@ function cobrancaTexto(rows){
 // usuario usa no navegador/PWA -- evita o mailto:, que no Windows costuma
 // abrir o app "novo Outlook" mesmo quando ele nao esta configurado com a
 // conta correta.
-function buildOutlookWebLink(to, rows){
-  const { subject, body } = cobrancaTexto(rows);
-  const params = new URLSearchParams({
-    to, cc: CC_EMAILS.join(","), subject, body,
+function buildOutlookWebLink(nomeComprador, emailComprador, rows){
+  const { subject, body } = cobrancaTexto(nomeComprador, rows);
+  const query = paramsUri({
+    to: EMAIL_PARA_COBRANCA,
+    cc: `${emailComprador};${EMAIL_FINANCEIRO}`,
+    subject, body,
   });
-  return `https://outlook.office.com/mail/deeplink/compose?${params.toString()}`;
+  return `https://outlook.office.com/mail/deeplink/compose?${query}`;
 }
 
 // Fallback: mailto tradicional, pro caso do usuario preferir o app de
 // e-mail padrão do computador (Outlook desktop, Mail, etc.).
-function buildMailto(to, rows){
-  const { subject, body } = cobrancaTexto(rows);
-  const params = new URLSearchParams({ subject, body, cc: CC_EMAILS.join(",") });
-  return `mailto:${encodeURIComponent(to)}?${params.toString()}`;
+function buildMailto(nomeComprador, emailComprador, rows){
+  const { subject, body } = cobrancaTexto(nomeComprador, rows);
+  const query = paramsUri({
+    subject, body,
+    cc: `${emailComprador},${EMAIL_FINANCEIRO}`,
+  });
+  return `mailto:${encodeURIComponent(EMAIL_PARA_COBRANCA)}?${query}`;
 }
 
 function closeModal(){ document.getElementById("modalBg").classList.remove("show"); }
