@@ -1257,7 +1257,8 @@ function openCobrancaModal(){
 
   modal.innerHTML = `
     <h3>Disparar e-mail de cobrança</h3>
-    <p class="sub">Um e-mail será montado por comprador, pra Compras com cópia pro comprador e financeiro — igual já era feito na planilha. "Abrir no Outlook Web" abre já pronto numa aba do navegador, na conta que você já usa lá.</p>
+    <p class="sub">Um e-mail será montado por comprador, pra Compras com cópia pro comprador e financeiro — igual já era feito na planilha.
+      "Abrir no Outlook Web" abre pronto numa aba do navegador (nesse, por uma instabilidade conhecida do próprio Outlook com o campo Cc, os três entram direto como destinatário). "App de e-mail" abre no Outlook instalado no computador, já com Para/Cc separados como manda o padrão.</p>
     ${groupKeys.length ? groupKeys.map(nome => `
       <div class="maillink">
         <div>
@@ -1342,13 +1343,15 @@ function paramsUri(obj){
 // conta correta.
 function buildOutlookWebLink(nomeComprador, emailComprador, rows){
   const { subject, body } = cobrancaTexto(nomeComprador, rows);
-  // OBS: o Outlook Web so reconhece varios enderecos no "cc" separados por
-  // VIRGULA -- com ponto-e-virgula (que e o padrao do Outlook desktop/VBA)
-  // ele descarta o campo inteiro em silencio, sem erro nenhum, foi o que
-  // deixou o Cc vazio no teste.
+  // OBS IMPORTANTE: o parametro "cc" do link do Outlook Web e reconhecidamente
+  // instavel (bug do proprio Outlook, ja relatado por outras pessoas -- vezes
+  // ele ignora "cc" completamente e so funciona numa segunda tentativa, mesmo
+  // com o formato certo). Pra garantir que compras + comprador + financeiro
+  // recebem o e-mail de fato, todo mundo vai no "to" desse link (todos como
+  // destinatario direto, sem separar Cc). O botao "app de e-mail" (mailto)
+  // ao lado continua respeitando Para/Cc separados normalmente.
   const query = paramsUri({
-    to: EMAIL_PARA_COBRANCA,
-    cc: `${emailComprador},${EMAIL_FINANCEIRO}`,
+    to: `${EMAIL_PARA_COBRANCA},${emailComprador},${EMAIL_FINANCEIRO}`,
     subject, body,
   });
   return `https://outlook.office.com/mail/deeplink/compose?${query}`;
