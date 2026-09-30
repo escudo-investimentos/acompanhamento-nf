@@ -719,6 +719,9 @@ function renderApp(){
     <main>
       <div class="stats">
         <div class="stat"><div class="n mono">${stats.total}</div><div class="l">Em acompanhamento (NF-e sem título)</div></div>
+        <div class="stat"><div class="n mono">${stats.abaixo15}</div><div class="l">Abaixo de 15 dias (da emissão)</div></div>
+        <div class="stat"><div class="n mono">${stats.entre1520}</div><div class="l">15 a 20 dias (da emissão)</div></div>
+        <div class="stat acima"><div class="n mono">${stats.acima20}</div><div class="l">Acima de 20 dias (da emissão)</div></div>
         <div class="stat semid"><div class="n mono">${stats.semid}</div><div class="l">Sem identificação</div></div>
         <div class="stat vencido"><div class="n mono">${stats.solicitarDesc}</div><div class="l">Solicitar desconhecimento (+60d)</div></div>
         <div class="stat"><div class="n mono">${fmtMoeda(stats.valor)}</div><div class="l">Valor total (aba atual)</div></div>
@@ -855,15 +858,22 @@ function getTabCounts(){
 // Respeita o filtro de periodo (De/Ate), igual ao relatorio do Michel.
 function getStats(){
   const semTitulo = notas.filter(n => (n.status_manual||"EXPORT") === "EXPORT" && !n.pago && !n.tem_titulo && passaPeriodo(n));
-  let semid=0, solicitarDesc=0;
+  // Contador por faixa de urgencia (dias desde a EMISSAO -- nao confundir
+  // com o "acima de 20 dias" antigo, que era por vencimento de titulo e
+  // saiu do site; esse aqui e so sobre ha quanto tempo a nota esta parada
+  // sem dar entrada).
+  let semid=0, solicitarDesc=0, abaixo15=0, entre1520=0, acima20=0;
   semTitulo.forEach(n => {
     const f = faixaDe(n);
     if(f==="SEM_IDENTIFICACAO") semid++;
     if(f==="SOLICITAR_DESCONHECIMENTO") solicitarDesc++;
+    if(f==="ABAIXO_15") abaixo15++;
+    if(f==="15_A_20") entre1520++;
+    if(f==="ACIMA_20") acima20++;
   });
   let valor=0;
   getFiltered().forEach(n => valor += Number(n.valor_total||0));
-  return { total: semTitulo.length, semid, solicitarDesc, valor };
+  return { total: semTitulo.length, semid, solicitarDesc, abaixo15, entre1520, acima20, valor };
 }
 
 function passaPeriodo(n){
