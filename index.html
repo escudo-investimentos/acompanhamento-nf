@@ -542,17 +542,26 @@ function diasAteVencimento(nota){
 // ainda (a maioria das notas, ate a fase 2 da integracao trazer isso),
 // usa a idade da nota desde a emissao como aproximacao -- e sinaliza como
 // "SOLICITAR DESCONHECIMENTO" quando passa de 60 dias sem resolucao.
+// IMPORTANTE: nota SEM titulo e nota COM titulo usam categorias DIFERENTES
+// (nao reaproveitam os mesmos nomes/cores) porque o sentido de urgencia e
+// oposto nos dois casos: sem titulo, quanto MAIS dias desde a emissao, pior
+// (a nota esta parada). Com titulo, quanto MENOS dias faltarem pro
+// vencimento (ou ja vencido), pior. Antes essa distincao nao existia e as
+// cores saiam trocadas pras notas com titulo (ver mapeamento-dashboard-
+// michel / correcao pontuada em 2026-09-30).
 function faixaDe(nota){
   const diasEmissao = diasDesde(nota.data_emissao);
   const diasVenc = diasAteVencimento(nota);
 
   if(diasVenc !== null){
+    // COM titulo: urgencia cresce conforme falta MENOS tempo pro vencimento.
     if(diasVenc < 0) return "VENCIDO";
-    if(diasVenc <= 15) return "ABAIXO_15";
-    if(diasVenc <= 20) return "15_A_20";
-    return "ACIMA_20";
+    if(diasVenc <= 15) return "TITULO_URGENTE";
+    if(diasVenc <= 20) return "TITULO_MEDIO";
+    return "TITULO_FOLGA";
   }
 
+  // SEM titulo: urgencia cresce conforme passa MAIS tempo sem dar entrada.
   if(diasEmissao === null) return "SEM_IDENTIFICACAO";
   if(diasEmissao > 60) return "SOLICITAR_DESCONHECIMENTO";
   if(!nota.possivel_comprador || !nota.possivel_comprador.trim()) return "SEM_IDENTIFICACAO";
@@ -562,12 +571,17 @@ function faixaDe(nota){
 }
 
 const FAIXA_META = {
+  // -- sem titulo (dias desde a emissao) --
   ABAIXO_15: { label: "Abaixo de 15 dias", cls: "ok" },
   "15_A_20": { label: "15 a 20 dias", cls: "mid" },
   ACIMA_20: { label: "Acima de 20 dias", cls: "hot" },
-  VENCIDO: { label: "Vencido", cls: "hot" },
   SEM_IDENTIFICACAO: { label: "Sem identificação", cls: "semid" },
   SOLICITAR_DESCONHECIMENTO: { label: "Solicitar desconhecimento", cls: "hot" },
+  // -- com titulo (dias ate o vencimento) --
+  VENCIDO: { label: "Vencido", cls: "hot" },
+  TITULO_URGENTE: { label: "Vence em até 15 dias", cls: "hot" },
+  TITULO_MEDIO: { label: "Vence em 15 a 20 dias", cls: "mid" },
+  TITULO_FOLGA: { label: "Vence em mais de 20 dias", cls: "ok" },
 };
 
 function fmtMoeda(v){
@@ -718,9 +732,9 @@ function renderApp(){
     </div>
     <main>
       <div class="stats">
-        <div class="stat"><div class="n mono">${stats.total}</div><div class="l">Em acompanhamento</div></div>
-        <div class="stat vencido"><div class="n mono">${stats.vencido}</div><div class="l">Vencidas</div></div>
-        <div class="stat acima"><div class="n mono">${stats.acima}</div><div class="l">Acima de 20 dias</div></div>
+        <div class="stat"><div class="n mono">${stats.total}</div><div class="l">Em acompanhamento (NF-e sem título)</div></div>
+        <div class="stat vencido"><div class="n mono">${stats.vencido}</div><div class="l">Vencidas (com título gerado)</div></div>
+        <div class="stat acima"><div class="n mono">${stats.acima}</div><div class="l">Notas com títulos acima de 20 dias</div></div>
         <div class="stat semid"><div class="n mono">${stats.semid}</div><div class="l">Sem identificação</div></div>
         <div class="stat vencido"><div class="n mono">${stats.solicitarDesc}</div><div class="l">Solicitar desconhecimento (+60d)</div></div>
         <div class="stat"><div class="n mono">${fmtMoeda(stats.valor)}</div><div class="l">Valor total (aba atual)</div></div>
@@ -745,13 +759,20 @@ function renderApp(){
         </div>
         <select class="filter" id="faixaFilter">
           <option value="TODAS" ${activeFaixa==='TODAS'?'selected':''}>Todas as urgências</option>
-          <option value="VENCIDO" ${activeFaixa==='VENCIDO'?'selected':''}>Vencido</option>
-          <option value="ACIMA_20" ${activeFaixa==='ACIMA_20'?'selected':''}>Acima de 20 dias</option>
-          <option value="15_A_20" ${activeFaixa==='15_A_20'?'selected':''}>15 a 20 dias</option>
-          <option value="MAIS_DE_15_EMISSAO" ${activeFaixa==='MAIS_DE_15_EMISSAO'?'selected':''}>Acima de 15 dias (da emissão)</option>
-          <option value="ABAIXO_15" ${activeFaixa==='ABAIXO_15'?'selected':''}>Abaixo de 15 dias</option>
-          <option value="SEM_IDENTIFICACAO" ${activeFaixa==='SEM_IDENTIFICACAO'?'selected':''}>Sem identificação</option>
-          <option value="SOLICITAR_DESCONHECIMENTO" ${activeFaixa==='SOLICITAR_DESCONHECIMENTO'?'selected':''}>Solicitar desconhecimento (+60d)</option>
+          <optgroup label="Sem título (dias desde a emissão)">
+            <option value="ABAIXO_15" ${activeFaixa==='ABAIXO_15'?'selected':''}>Abaixo de 15 dias</option>
+            <option value="15_A_20" ${activeFaixa==='15_A_20'?'selected':''}>15 a 20 dias</option>
+            <option value="ACIMA_20" ${activeFaixa==='ACIMA_20'?'selected':''}>Acima de 20 dias</option>
+            <option value="MAIS_DE_15_EMISSAO" ${activeFaixa==='MAIS_DE_15_EMISSAO'?'selected':''}>Acima de 15 dias (da emissão)</option>
+            <option value="SEM_IDENTIFICACAO" ${activeFaixa==='SEM_IDENTIFICACAO'?'selected':''}>Sem identificação</option>
+            <option value="SOLICITAR_DESCONHECIMENTO" ${activeFaixa==='SOLICITAR_DESCONHECIMENTO'?'selected':''}>Solicitar desconhecimento (+60d)</option>
+          </optgroup>
+          <optgroup label="Com título (dias até o vencimento)">
+            <option value="VENCIDO" ${activeFaixa==='VENCIDO'?'selected':''}>Vencido</option>
+            <option value="TITULO_URGENTE" ${activeFaixa==='TITULO_URGENTE'?'selected':''}>Vence em até 15 dias</option>
+            <option value="TITULO_MEDIO" ${activeFaixa==='TITULO_MEDIO'?'selected':''}>Vence em 15 a 20 dias</option>
+            <option value="TITULO_FOLGA" ${activeFaixa==='TITULO_FOLGA'?'selected':''}>Vence em mais de 20 dias</option>
+          </optgroup>
         </select>
         <div class="dateRange">
           <label>De <input type="date" id="dataDe" value="${dataDe}" /></label>
@@ -874,7 +895,7 @@ function getStats(){
   comTitulo.forEach(n => {
     const f = faixaDe(n);
     if(f==="VENCIDO") vencido++;
-    if(f==="ACIMA_20") acima++;
+    if(f==="TITULO_FOLGA") acima++;
   });
   let valor=0;
   getFiltered().forEach(n => valor += Number(n.valor_total||0));
