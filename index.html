@@ -159,6 +159,8 @@
   .tab.active{background:var(--surface); color:var(--text); box-shadow:var(--shadow)}
   .tab.pagos{color:var(--good)}
   .tab.pagos.active{color:var(--good)}
+  .tab.titulo{color:var(--accent-2)}
+  .tab.titulo.active{color:var(--accent-2)}
   .spacer{flex:1}
   .search{
     display:flex; align-items:center; gap:7px; background:var(--surface); border:1px solid var(--border);
@@ -349,6 +351,7 @@ const COLUNAS = [
   { id: "numero_nf",      label: "Nº NF",              valor: n => n.numero_nf || "" },
   { id: "fornecedor",     label: "Fornecedor",         valor: n => n.fornecedor || "" },
   { id: "empreendimento", label: "Empreendimento",     valor: n => n.empreendimento || "" },
+  { id: "manifestacao",   label: "Manifestação",       valor: n => n.manifestacao || "" },
   { id: "emissao",        label: "Emissão",            valor: n => fmtData(n.data_emissao),
     sortValor: n => n.data_emissao || "" },
   { id: "dias_emissao",   label: "Dias emissão", num: true, width: "60px",
@@ -729,6 +732,9 @@ function renderApp(){
             <button class="tab ${activeTab===s?'active':''}" data-tab="${s}">
               ${STATUS_LABELS[s]} · ${counts[s]||0}
             </button>`).join("")}
+          <button class="tab titulo ${activeTab==='TITULO'?'active':''}" data-tab="TITULO">
+            📋 Notas com títulos gerados · ${counts.TITULO||0}
+          </button>
           <button class="tab pagos ${activeTab==='PAGOS'?'active':''}" data-tab="PAGOS">
             ✓ Pagos · ${counts.PAGOS||0}
           </button>
@@ -764,12 +770,12 @@ function renderApp(){
 
       <div class="bulkbar ${selected.size ? 'show':''}" id="bulkbar">
         <strong>${selected.size}</strong> selecionada(s)
-        ${activeTab !== 'PAGOS' ? `
+        ${(activeTab !== 'PAGOS' && activeTab !== 'TITULO') ? `
           <button class="btn small" data-bulk="EXPORT">Voltar p/ acompanhamento</button>
           <button class="btn small" data-bulk="NOTA_DESCONHECIDA">Marcar nota desconhecida</button>
           <button class="btn small" data-bulk="FEITO_DESCONHECIMENTO">Marcar feito desconhecimento</button>
           <button class="btn small danger" data-bulk="LIXO">Mover p/ lixo</button>
-        ` : `<span style="color:var(--text-dim); font-size:12.5px">Notas pagas são atualizadas automaticamente pelo Sienge.</span>`}
+        ` : `<span style="color:var(--text-dim); font-size:12.5px">${activeTab === 'PAGOS' ? 'Notas pagas são atualizadas automaticamente pelo Sienge.' : 'Notas com título gerado são movidas pra cá automaticamente pelo Sienge.'}</span>`}
         <div class="spacer"></div>
         <button class="btn small primary" id="btnCobranca">✉ Disparar cobrança</button>
       </div>
@@ -843,24 +849,36 @@ function getTabCounts(){
   const c = {};
   notas.forEach(n => {
     if(n.pago){ c.PAGOS = (c.PAGOS||0)+1; return; }
+    if(n.vencimento){ c.TITULO = (c.TITULO||0)+1; return; }
     const s = n.status_manual || "EXPORT";
     c[s] = (c[s]||0)+1;
   });
   return c;
 }
 
+// As metricas de "Vencidas"/"Acima de 20 dias" so fazem sentido pra quem ja
+// tem titulo/vencimento (aba "Notas com titulos gerados") -- e "Sem
+// identificacao"/"Solicitar desconhecimento" so fazem sentido pra quem ainda
+// NAO tem titulo (aba "Em acompanhamento"). Por isso cada par de metricas usa
+// seu proprio universo de notas, em vez de uma unica lista "base".
 function getStats(){
-  const base = notas.filter(n => (n.status_manual||"EXPORT") === "EXPORT" && !n.pago);
-  let vencido=0, acima=0, semid=0, solicitarDesc=0, valor=0;
-  base.forEach(n => {
+  const semTitulo = notas.filter(n => (n.status_manual||"EXPORT") === "EXPORT" && !n.pago && !n.vencimento);
+  const comTitulo = notas.filter(n => !n.pago && n.vencimento);
+  let semid=0, solicitarDesc=0;
+  semTitulo.forEach(n => {
     const f = faixaDe(n);
-    if(f==="VENCIDO") vencido++;
-    if(f==="ACIMA_20") acima++;
     if(f==="SEM_IDENTIFICACAO") semid++;
     if(f==="SOLICITAR_DESCONHECIMENTO") solicitarDesc++;
   });
+  let vencido=0, acima=0;
+  comTitulo.forEach(n => {
+    const f = faixaDe(n);
+    if(f==="VENCIDO") vencido++;
+    if(f==="ACIMA_20") acima++;
+  });
+  let valor=0;
   getFiltered().forEach(n => valor += Number(n.valor_total||0));
-  return { total: base.length, vencido, acima, semid, solicitarDesc, valor };
+  return { total: semTitulo.length, vencido, acima, semid, solicitarDesc, valor };
 }
 
 function passaPeriodo(n){
@@ -877,8 +895,10 @@ function getFiltered({ ignorarColuna } = {}){
   return notas.filter(n => {
     if(activeTab === "PAGOS"){
       if(!n.pago) return false;
+    } else if(activeTab === "TITULO"){
+      if(n.pago || !n.vencimento) return false;
     } else {
-      if(n.pago) return false;
+      if(n.pago || n.vencimento) return false;
       if((n.status_manual || "EXPORT") !== activeTab) return false;
     }
     if(activeFaixa !== "TODAS"){
@@ -1013,6 +1033,7 @@ function rowHtml(n){
         </div>
       </td>
       <td>${n.empreendimento || "—"}</td>
+      <td>${n.manifestacao || "—"}</td>
       <td class="mono">${fmtData(n.data_emissao)}</td>
       <td class="num mono">${diasEmissao === null ? "—" : diasEmissao}</td>
       <td class="mono">${n.vencimento ? fmtData(n.vencimento) : "—"}</td>
