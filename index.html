@@ -882,9 +882,11 @@ function getTabCounts(){
 // identificacao"/"Solicitar desconhecimento" so fazem sentido pra quem ainda
 // NAO tem titulo (aba "Em acompanhamento"). Por isso cada par de metricas usa
 // seu proprio universo de notas, em vez de uma unica lista "base".
+// Todas respeitam o filtro de periodo (De/Ate), igual ao relatorio do Michel
+// -- move o periodo e os numeros das caixinhas do topo mudam junto.
 function getStats(){
-  const semTitulo = notas.filter(n => (n.status_manual||"EXPORT") === "EXPORT" && !n.pago && !n.vencimento);
-  const comTitulo = notas.filter(n => !n.pago && n.vencimento);
+  const semTitulo = notas.filter(n => (n.status_manual||"EXPORT") === "EXPORT" && !n.pago && !n.vencimento && passaPeriodo(n));
+  const comTitulo = notas.filter(n => !n.pago && n.vencimento && passaPeriodo(n));
   let semid=0, solicitarDesc=0;
   semTitulo.forEach(n => {
     const f = faixaDe(n);
