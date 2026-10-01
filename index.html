@@ -374,7 +374,15 @@ const COLUNAS = [
   { id: "numero_nf",      label: "Nº NF",              valor: n => n.numero_nf || "" },
   { id: "fornecedor",     label: "Fornecedor",         valor: n => n.fornecedor || "" },
   { id: "empreendimento", label: "Empreendimento",     valor: n => n.empreendimento || "" },
-  { id: "manifestacao",   label: "Manifestação",       valor: n => n.manifestacao || "" },
+  // opcoesFixas (01/10/2026): lista fixa de manifestacoes possiveis (ver
+  // CODIGOS_MANIFESTACAO no sync.py) -- sem isso, o filtro so oferecia as
+  // manifestacoes que ja apareciam entre as notas filtradas no momento (ex:
+  // so 2 das 5 categorias, se as outras 3 nao tiverem nenhuma nota agora),
+  // igual um autofiltro de Excel. Com a lista fixa, fica igual um slicer do
+  // Power BI: sempre mostra todas as categorias possiveis, mesmo com 0
+  // notas batendo com alguma delas no momento.
+  { id: "manifestacao",   label: "Manifestação",       valor: n => n.manifestacao || "",
+    opcoesFixas: ["", "SEM MANIFESTACAO", "CIENCIA/CONFIRMACAO", "DESCONHECIDA", "NAO REALIZADA", "OUTRO SISTEMA"] },
   { id: "emissao",        label: "Emissão",            valor: n => fmtData(n.data_emissao),
     sortValor: n => n.data_emissao || "" },
   { id: "dias_emissao",   label: "Dias emissão", num: true, width: "60px",
@@ -993,6 +1001,11 @@ function getFiltered({ ignorarColuna } = {}){
 // Valores unicos disponiveis pra montar a lista de checkboxes do filtro de
 // uma coluna, considerando os demais filtros ja ativos (progressive narrowing).
 function opcoesColuna(col){
+  if(col.opcoesFixas){
+    // Lista fixa (ver COLUNAS) -- sempre todas as opcoes possiveis, nao so
+    // as que aparecem nas notas filtradas no momento.
+    return [...col.opcoesFixas].sort((a,b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
+  }
   const vistos = new Set();
   getFiltered({ ignorarColuna: col.id }).forEach(n => vistos.add(String(col.valor(n) || "")));
   return [...vistos].sort((a,b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
