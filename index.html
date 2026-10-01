@@ -208,7 +208,16 @@
   /* ---------- Table ---------- */
   .table-scroll-top{overflow-x:auto; overflow-y:hidden; height:14px; margin-bottom:2px}
   .table-scroll-top-inner{height:1px}
-  .table-wrap{background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:auto; box-shadow:var(--shadow)}
+  /* max-height adicionado em 01/10/2026: sem isso, o .table-wrap nunca tinha
+     "altura propria" pra rolar -- era a PAGINA inteira que rolava, entao o
+     "position:sticky" do thead (ja existia) nunca tinha efeito de verdade
+     (nada pra grudar dentro de um container do tamanho do proprio conteudo).
+     Com altura limitada, a tabela rola por dentro e o cabecalho fica fixo no
+     topo dela -- tipo "congelar painel" do Excel. */
+  .table-wrap{
+    background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:auto; box-shadow:var(--shadow);
+    max-height:calc(100vh - 330px); min-height:260px;
+  }
   table{border-collapse:collapse; width:100%; min-width:1180px}
   thead th{
     text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-dim);
