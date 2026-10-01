@@ -357,6 +357,13 @@ const COLUNAS = [
   { id: "dias_emissao",   label: "Dias emissão", num: true, width: "60px",
     valor: n => { const d = diasDesde(n.data_emissao); return d===null ? "" : String(d); },
     sortValor: n => { const d = diasDesde(n.data_emissao); return d===null ? -Infinity : d; } },
+  // NOTA (01/10/2026): esse "vencimento" vem direto do XML da propria NFe
+  // (campo dVenc da 1a parcela), independente de titulo lancado no Sienge --
+  // bem diferente do antigo "vencimento" por titulo que saiu daqui em
+  // 30/09/2026 (esse continua em index_completo_com_titulos.html). Nem toda
+  // nota traz essa informacao no XML -- quando nao traz, fica em branco.
+  { id: "vencimento",     label: "Vencimento",         valor: n => n.vencimento ? fmtData(n.vencimento) : "",
+    sortValor: n => n.vencimento || "" },
   { id: "urgencia",       label: "Urgência",           valor: n => FAIXA_META[faixaDe(n)].label },
   { id: "valor",          label: "Valor", num: true,   valor: n => fmtMoeda(n.valor_total),
     sortValor: n => Number(n.valor_total || 0) },
@@ -365,7 +372,7 @@ const COLUNAS = [
   { id: "status",         label: "Status", width: "150px",
     valor: n => STATUS_LABELS[n.status_manual || "EXPORT"] },
 ];
-// NOTA (30/09/2026): colunas de Vencimento/Dias venc./Pago em saíram daqui --
+// NOTA (30/09/2026): colunas de Dias venc./Pago em (por TITULO) saíram daqui --
 // o acompanhamento principal foca só em notas SEM título (ver decisão no
 // plano-prioridades-pos-analise-michel.md). Versão completa com essas
 // colunas continua em index_completo_com_titulos.html.
@@ -840,9 +847,11 @@ function renderAprovacoes(){
 function getTabCounts(){
   const c = {};
   notas.forEach(n => {
-    // acompanhamento principal so conta notas SEM titulo e SEM pagamento --
-    // o resto (com titulo/pago) nao entra em nenhuma aba aqui.
-    if(n.pago || n.tem_titulo) return;
+    // acompanhamento principal so conta notas SEM titulo e SEM pagamento,
+    // que de fato sejam venda de mercadoria (fora_escopo tira remessa,
+    // garantia, bonificacao, nota cancelada/nao-autorizada -- ver
+    // buscar_vencimentos_e_filtros no sync.py).
+    if(n.pago || n.tem_titulo || n.fora_escopo) return;
     const s = n.status_manual || "EXPORT";
     c[s] = (c[s]||0)+1;
   });
@@ -857,7 +866,7 @@ function getTabCounts(){
 // isso no futuro.
 // Respeita o filtro de periodo (De/Ate), igual ao relatorio do Michel.
 function getStats(){
-  const semTitulo = notas.filter(n => (n.status_manual||"EXPORT") === "EXPORT" && !n.pago && !n.tem_titulo && passaPeriodo(n));
+  const semTitulo = notas.filter(n => (n.status_manual||"EXPORT") === "EXPORT" && !n.pago && !n.tem_titulo && !n.fora_escopo && passaPeriodo(n));
   // Contador por faixa de urgencia (dias desde a EMISSAO -- nao confundir
   // com o "acima de 20 dias" antigo, que era por vencimento de titulo e
   // saiu do site; esse aqui e so sobre ha quanto tempo a nota esta parada
@@ -889,8 +898,8 @@ function passaPeriodo(n){
 function getFiltered({ ignorarColuna } = {}){
   return notas.filter(n => {
     // Acompanhamento principal so mostra notas SEM titulo (decisao de
-    // 30/09/2026) -- notas com titulo/pagas saem daqui de vez.
-    if(n.pago || n.tem_titulo) return false;
+    // 30/09/2026) -- notas com titulo/pagas/fora de escopo saem daqui de vez.
+    if(n.pago || n.tem_titulo || n.fora_escopo) return false;
     if((n.status_manual || "EXPORT") !== activeTab) return false;
     if(activeFaixa !== "TODAS"){
       if(activeFaixa === "MAIS_DE_15_EMISSAO"){
@@ -1026,6 +1035,7 @@ function rowHtml(n){
       <td>${n.manifestacao || "—"}</td>
       <td class="mono">${fmtData(n.data_emissao)}</td>
       <td class="num mono">${diasEmissao === null ? "—" : diasEmissao}</td>
+      <td class="mono">${n.vencimento ? fmtData(n.vencimento) : "—"}</td>
       <td><span class="badge ${fm.cls}">${fm.label}</span></td>
       <td class="num mono">${fmtMoeda(n.valor_total)}</td>
       <td>
