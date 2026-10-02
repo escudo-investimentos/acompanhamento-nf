@@ -388,9 +388,16 @@
 
   .xlsChart{display:flex; align-items:flex-end; gap:16px; padding:10px 18px 2px; min-width:360px; flex:1}
   .xlsBarCol{display:flex; flex-direction:column; align-items:center; width:64px; height:100%; cursor:pointer}
-  .xlsBarN{font-weight:800; font-size:13px; margin-bottom:4px}
   .xlsBarTrack{width:30px; height:128px; display:flex; align-items:flex-end}
-  .xlsBar{width:100%; background:#ED7D31; border-radius:2px 2px 0 0; transition:height .15s}
+  .xlsBar{width:100%; position:relative; background:#ED7D31; border-radius:2px 2px 0 0; transition:height .15s}
+  /* Numero fica DENTRO da barra, grudado no topo (02/10/2026): antes ficava
+     fixo no topo do grafico inteiro, longe da barra quando ela era baixa
+     (pouca contagem) -- igual a planilha, o rotulo tem que acompanhar o
+     topo de CADA barra, nao um topo fixo. */
+  .xlsBarN{
+    position:absolute; bottom:100%; left:50%; transform:translateX(-50%); margin-bottom:4px;
+    font-weight:800; font-size:13px; white-space:nowrap;
+  }
   .xlsBarCol.sel .xlsBar{background:#C45A10}
   .xlsBarL{font-size:10px; font-weight:700; color:var(--text-dim); text-align:center; margin-top:6px; line-height:1.25}
   .xlsBarCol:hover .xlsBarL{color:var(--text)}
@@ -1501,8 +1508,11 @@ function renderGraficoFaixas(contagens){
     <div class="xlsChart">
       ${ordenado.map(s => `
         <div class="xlsBarCol ${xlsFiltros.status.has(s) ? 'sel' : ''}" data-slicer="status" data-valor="${s}">
-          <div class="xlsBarN">${contagens[s] || 0}</div>
-          <div class="xlsBarTrack"><div class="xlsBar" style="height:${contagens[s] ? Math.max(4, (contagens[s]/max)*100) : 0}%"></div></div>
+          <div class="xlsBarTrack">
+            <div class="xlsBar" style="height:${contagens[s] ? Math.max(4, (contagens[s]/max)*100) : 0}%">
+              <span class="xlsBarN">${contagens[s] || 0}</span>
+            </div>
+          </div>
           <div class="xlsBarL">${s}</div>
         </div>
       `).join("")}
@@ -1866,16 +1876,27 @@ function wireApp(filtered){
       new ResizeObserver(sincronizarLargura).observe(table);
     }
 
-    // Versao anterior usava uma flag booleana "sincronizando" pra evitar
-    // loop infinito entre os dois onscroll, mas zerava a flag ANTES do
-    // evento de scroll do outro elemento chegar a disparar (scroll e
-    // assincrono) -- na pratica nao bloqueava nada e deixava a rolagem
-    // engasgada/pulando ao arrastar. Em vez de mutex, so atualiza quando o
-    // valor realmente mudou -- idempotente, sem loop.
+    // CORRIGIDO DE NOVO (02/10/2026): o ajuste anterior (so atualizar quando
+    // o valor muda) ainda nao bastava -- ao ARRASTAR uma das duas barras, o
+    // evento "scroll" dela dispara repetidas vezes bem rapido, e cada
+    // disparo forcava uma escrita em scrollLeft NA OUTRA barra, que por sua
+    // vez (as vezes) disparava seu PROPRIO evento de scroll de volta -- esse
+    // ziguezague de "escreve/reescreve" entre as duas a cada pixel arrastado
+    // e' o que sentia como travamento/engasgo. Agora so a barra que esta
+    // sendo arrastada DE VERDADE (detectado por pointerdown/pointerup) e'
+    // quem manda na outra; a que nao esta sendo arrastada so recebe, nunca
+    // ecoa de volta.
+    let arrastando = null; // "top" | "tabela" | null
+    scrollTop.addEventListener("pointerdown", () => { arrastando = "top"; });
+    tableWrap.addEventListener("pointerdown", () => { arrastando = "tabela"; });
+    window.addEventListener("pointerup", () => { arrastando = null; });
+
     scrollTop.onscroll = () => {
+      if(arrastando === "tabela") return;
       if(tableWrap.scrollLeft !== scrollTop.scrollLeft) tableWrap.scrollLeft = scrollTop.scrollLeft;
     };
     tableWrap.onscroll = () => {
+      if(arrastando === "top") return;
       if(scrollTop.scrollLeft !== tableWrap.scrollLeft) scrollTop.scrollLeft = tableWrap.scrollLeft;
     };
   }
