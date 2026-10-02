@@ -163,6 +163,10 @@
   .stat.vencido .n{color:var(--bad)}
   .stat.acima .n{color:var(--warn)}
   .stat.semid .n{color:var(--text-dim)}
+  .stat.clickable{cursor:pointer; transition:border-color .12s, transform .06s}
+  .stat.clickable:hover{border-color:var(--accent)}
+  .stat.clickable:active{transform:scale(.98)}
+  .stat.stat-active{border-color:var(--accent); border-width:2px; padding:11px 13px}
 
   /* ---------- Tabs / filters ---------- */
   .controls{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px}
@@ -765,15 +769,15 @@ function renderApp(){
     </div>
     <main>
       <div class="stats">
-        <div class="stat"><div class="n mono">${stats.total}</div><div class="l">Em acompanhamento (NF-e sem título)</div></div>
-        <div class="stat"><div class="n mono">${stats.abaixo15}</div><div class="l">Abaixo de 15 dias (da emissão)</div></div>
-        <div class="stat"><div class="n mono">${stats.entre1520}</div><div class="l">15 a 20 dias (da emissão)</div></div>
-        <div class="stat acima"><div class="n mono">${stats.acima20}</div><div class="l">Acima de 20 dias (da emissão)</div></div>
-        <div class="stat semid"><div class="n mono">${stats.semid}</div><div class="l">Sem identificação</div></div>
-        <div class="stat vencido"><div class="n mono">${stats.solicitarDesc}</div><div class="l">Solicitar desconhecimento (+60d)</div></div>
-        <div class="stat vencido"><div class="n mono">${stats.vencAbaixo12}</div><div class="l">Abaixo de 12 dias (p/ vencimento)</div></div>
-        <div class="stat"><div class="n mono">${stats.venc13a20}</div><div class="l">13 a 20 dias (p/ vencimento)</div></div>
-        <div class="stat acima"><div class="n mono">${stats.vencAcima20}</div><div class="l">Acima de 20 dias (p/ vencimento)</div></div>
+        <div class="stat clickable ${activeFaixa==='TODAS'?'stat-active':''}" data-faixa="TODAS" title="Ver todas"><div class="n mono">${stats.total}</div><div class="l">Em acompanhamento (NF-e sem título)</div></div>
+        <div class="stat clickable ${activeFaixa==='ABAIXO_15'?'stat-active':''}" data-faixa="ABAIXO_15" title="Ver essas notas"><div class="n mono">${stats.abaixo15}</div><div class="l">Abaixo de 15 dias (da emissão)</div></div>
+        <div class="stat clickable ${activeFaixa==='15_A_20'?'stat-active':''}" data-faixa="15_A_20" title="Ver essas notas"><div class="n mono">${stats.entre1520}</div><div class="l">15 a 20 dias (da emissão)</div></div>
+        <div class="stat acima clickable ${activeFaixa==='ACIMA_20'?'stat-active':''}" data-faixa="ACIMA_20" title="Ver essas notas"><div class="n mono">${stats.acima20}</div><div class="l">Acima de 20 dias (da emissão)</div></div>
+        <div class="stat semid clickable ${activeFaixa==='SEM_IDENTIFICACAO'?'stat-active':''}" data-faixa="SEM_IDENTIFICACAO" title="Ver essas notas"><div class="n mono">${stats.semid}</div><div class="l">Sem identificação</div></div>
+        <div class="stat vencido clickable ${activeFaixa==='SOLICITAR_DESCONHECIMENTO'?'stat-active':''}" data-faixa="SOLICITAR_DESCONHECIMENTO" title="Ver essas notas"><div class="n mono">${stats.solicitarDesc}</div><div class="l">Solicitar desconhecimento (+60d)</div></div>
+        <div class="stat vencido clickable ${activeFaixa==='VENC_ABAIXO_12'?'stat-active':''}" data-faixa="VENC_ABAIXO_12" title="Ver essas notas"><div class="n mono">${stats.vencAbaixo12}</div><div class="l">Abaixo de 12 dias (p/ vencimento)</div></div>
+        <div class="stat clickable ${activeFaixa==='VENC_13_A_20'?'stat-active':''}" data-faixa="VENC_13_A_20" title="Ver essas notas"><div class="n mono">${stats.venc13a20}</div><div class="l">13 a 20 dias (p/ vencimento)</div></div>
+        <div class="stat acima clickable ${activeFaixa==='VENC_ACIMA_20'?'stat-active':''}" data-faixa="VENC_ACIMA_20" title="Ver essas notas"><div class="n mono">${stats.vencAcima20}</div><div class="l">Acima de 20 dias (p/ vencimento)</div></div>
         <div class="stat"><div class="n mono">${fmtMoeda(stats.valor)}</div><div class="l">Valor total (aba atual)</div></div>
       </div>
 
@@ -796,6 +800,9 @@ function renderApp(){
           <option value="MAIS_DE_15_EMISSAO" ${activeFaixa==='MAIS_DE_15_EMISSAO'?'selected':''}>Acima de 15 dias (da emissão)</option>
           <option value="SEM_IDENTIFICACAO" ${activeFaixa==='SEM_IDENTIFICACAO'?'selected':''}>Sem identificação</option>
           <option value="SOLICITAR_DESCONHECIMENTO" ${activeFaixa==='SOLICITAR_DESCONHECIMENTO'?'selected':''}>Solicitar desconhecimento (+60d)</option>
+          <option value="VENC_ABAIXO_12" ${activeFaixa==='VENC_ABAIXO_12'?'selected':''}>Abaixo de 12 dias (p/ vencimento)</option>
+          <option value="VENC_13_A_20" ${activeFaixa==='VENC_13_A_20'?'selected':''}>13 a 20 dias (p/ vencimento)</option>
+          <option value="VENC_ACIMA_20" ${activeFaixa==='VENC_ACIMA_20'?'selected':''}>Acima de 20 dias (p/ vencimento)</option>
         </select>
         <div class="dateRange">
           <label>De <input type="date" id="dataDe" value="${dataDe}" /></label>
@@ -986,6 +993,14 @@ function getFiltered({ ignorarColuna } = {}){
       if(activeFaixa === "MAIS_DE_15_EMISSAO"){
         const d = diasDesde(n.data_emissao);
         if(d === null || d <= 15) return false;
+      } else if(activeFaixa === "VENC_ABAIXO_12" || activeFaixa === "VENC_13_A_20" || activeFaixa === "VENC_ACIMA_20"){
+        // faixas "p/ vencimento" (clique nos cards de baixo) -- usam
+        // diasAteVencimento em vez de faixaDe (que e por dias de emissao).
+        const dv = diasAteVencimento(n);
+        if(dv === null) return false;
+        if(activeFaixa === "VENC_ABAIXO_12" && dv > 12) return false;
+        if(activeFaixa === "VENC_13_A_20" && (dv <= 12 || dv > 20)) return false;
+        if(activeFaixa === "VENC_ACIMA_20" && dv <= 20) return false;
       } else if(faixaDe(n) !== activeFaixa){
         return false;
       }
@@ -1154,6 +1169,17 @@ function wireApp(filtered){
     b.onclick = () => { activeTab = b.dataset.tab; selected.clear(); render(); };
   });
   document.getElementById("faixaFilter").onchange = (e) => { activeFaixa = e.target.value; render(); };
+
+  // Cards do topo (stats) clicaveis: clicar filtra a tabela pra essa faixa
+  // (mesmo mecanismo do dropdown "Todas as urgencias" acima) -- clicar de
+  // novo no card ja ativo volta pra "TODAS". Pedido em 02/10/2026.
+  document.querySelectorAll(".stat.clickable").forEach(el => {
+    el.onclick = () => {
+      const faixa = el.dataset.faixa;
+      activeFaixa = (activeFaixa === faixa) ? "TODAS" : faixa;
+      render();
+    };
+  });
   document.getElementById("searchInput").oninput = (e) => { searchTerm = e.target.value; colunaFocoAtual = "__search__"; render(); };
 
   document.getElementById("dataDe").onchange = (e) => { dataDe = e.target.value; render(); };
