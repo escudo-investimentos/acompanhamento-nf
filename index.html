@@ -357,13 +357,22 @@ let activeTab = "EXPORT";
 let activeFaixa = "TODAS";
 let searchTerm = "";
 let selected = new Set();
-let dataDe = "";
-let dataAte = "";
+  // Default (02/10/2026): abre já no mesmo recorte que o Michel usa pra
+  // comparar com o painel dele (período = ano corrente, Manifestação =
+  // CIENCIA/CONFIRMACAO) -- ver comentario em getStatsBase(). Continua 100%
+  // editavel pelos mesmos controles (campo de data, dropdown da coluna
+  // Manifestacao, botao "Filtros de coluna" pra limpar tudo).
+  let dataDe = `${new Date().getFullYear()}-01-01`;
+  let dataAte = "";
 
-// Filtro estilo Excel: por coluna, um Set com os VALORES EXCLUIDOS (nao
-// marcados na lista de checkboxes). Coluna ausente daqui = nenhum valor
-// excluido = sem filtro nessa coluna.
-let columnFilters = {};
+  // Filtro estilo Excel: por coluna, um Set com os VALORES EXCLUIDOS (nao
+  // marcados na lista de checkboxes). Coluna ausente daqui = nenhum valor
+  // excluido = sem filtro nessa coluna.
+  let columnFilters = {
+    // exclui tudo que NAO e "CIENCIA/CONFIRMACAO" -- mesmo recorte que o
+    // Michel usa no filtro "Manifestacao" do Power BI pra essa comparacao.
+    manifestacao: new Set(["", "SEM MANIFESTACAO", "DESCONHECIDA", "NAO REALIZADA", "OUTRO SISTEMA"]),
+  };
 let dropdownColunaAberta = null;  // id da coluna com o filtro aberto, ou null
 let dropdownBusca = "";           // texto digitado pra pesquisar na lista do filtro aberto
 let colunaFocoAtual = null;       // qual campo de busca estava com foco antes do ultimo render
