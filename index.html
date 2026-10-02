@@ -333,6 +333,12 @@
     padding:7px 9px; border:1px solid #16395a; white-space:nowrap; position:sticky; top:0; z-index:2;
   }
   table.xlsTable td{padding:5px 9px; border:1px solid #d7deea; white-space:nowrap}
+  table.xlsTable td.xlsRowNum{
+    background:#EDF1F7; color:#6b7686; text-align:center; font-weight:700; font-size:11px; padding:5px 4px;
+  }
+  @media (prefers-color-scheme: dark){
+    table.xlsTable td.xlsRowNum{background:#1a2330; color:#8795a8}
+  }
   table.xlsTable tbody tr:nth-child(even){background:#DCE6F2}
   table.xlsTable tbody tr:nth-child(odd){background:#fff}
   table.xlsTable tbody tr:hover{background:#c9ddf5}
@@ -367,11 +373,17 @@
   }
   .xlsSlicerClear{border:none; background:transparent; color:var(--text-dim); cursor:pointer; font-size:12px; line-height:1; padding:2px}
   .xlsSlicerClear:hover{color:var(--text)}
-  .xlsSlicerBody{max-height:168px; overflow:auto; padding:3px}
-  .xlsSlicerItem{padding:5px 8px; font-size:12px; border-radius:3px; cursor:pointer; margin:1px 0}
+  .xlsSlicerBody{max-height:168px; overflow:auto}
+  .xlsSlicerItem{
+    display:flex; align-items:center; gap:7px; padding:6px 8px; font-size:12px; cursor:pointer;
+    border-bottom:1px solid var(--border);
+  }
+  .xlsSlicerItem:last-child{border-bottom:none}
+  .xlsSlicerItem input[type="checkbox"]{pointer-events:none; margin:0}
+  .xlsSlicerItem span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
   .xlsSlicerItem:hover{background:var(--surface-2)}
-  .xlsSlicerItem.sel{background:#F4A23A; color:#fff; font-weight:700}
-  .xlsSlicerItem.vazio{color:var(--text-dim); cursor:default; text-align:center}
+  .xlsSlicerItem.sel{background:#FCE9D2; font-weight:700}
+  .xlsSlicerItem.vazio{color:var(--text-dim); cursor:default; text-align:center; justify-content:center; border-bottom:none}
   .xlsSlicerItem.vazio:hover{background:transparent}
 
   .xlsChart{display:flex; align-items:flex-end; gap:16px; padding:10px 18px 2px; min-width:360px; flex:1}
@@ -946,6 +958,16 @@ function renderApp(){
           ${renderGraficoFaixas(contagensStatus)}
         </div>
 
+        <div class="bulkbar ${selected.size ? 'show':''}" id="bulkbar">
+          <strong>${selected.size}</strong> selecionada(s)
+          <button class="btn small" data-bulk="EXPORT">Voltar p/ acompanhamento</button>
+          <button class="btn small" data-bulk="NOTA_DESCONHECIDA">Marcar nota desconhecida</button>
+          <button class="btn small" data-bulk="FEITO_DESCONHECIMENTO">Marcar feito desconhecimento</button>
+          <button class="btn small danger" data-bulk="LIXO">Mover p/ lixo</button>
+          <div class="spacer"></div>
+          <button class="btn small primary" id="btnCobranca">✉ Disparar cobrança</button>
+        </div>
+
         <div class="table-scroll-top" id="tableScrollTop"><div class="table-scroll-top-inner" id="tableScrollTopInner"></div></div>
         <div class="table-wrap" id="tableWrap">
           ${renderTabelaExcel(filtradosExcel)}
@@ -1028,7 +1050,7 @@ function renderApp(){
     </main>
   `;
 
-  wireApp(filtered);
+  wireApp(viewMode === "excel" ? filtradosExcel : filtered);
 
   if(scrollAnterior){
     const tableWrapNovo = document.getElementById("tableWrap");
@@ -1307,14 +1329,17 @@ const COLUNAS_EXCEL = [
   { label: "SOLICITAR DESCONHECIMENTO", width: "150px" },
 ];
 
-function linhaExcel(n){
+function linhaExcel(n, indice){
   const diasEmissao = diasDesde(n.data_emissao);
   const diasVenc = diasAteVencimento(n);
   const status = statusExcel(n);
   const statusCls = STATUS_EXCEL_CLASSES[status] || "";
   const solicitar = diasEmissao !== null && diasEmissao > 60;
+  const isSel = selected.has(n.id);
   return `
-    <tr data-id="${n.id}">
+    <tr class="${isSel?'selected':''}" data-id="${n.id}">
+      <td class="xlsRowNum">${indice + 1}</td>
+      <td><input type="checkbox" class="checkbox rowcheck" data-id="${n.id}" ${isSel?'checked':''} /></td>
       <td>
         <select class="rowselect" data-field="possivel_comprador" data-id="${n.id}">
           <option value="">SEM SUGESTÃO</option>
@@ -1379,7 +1404,10 @@ function renderSlicer(titulo, campo, opcoes){
       </div>
       <div class="xlsSlicerBody">
         ${opcoes.length ? opcoes.map(v => `
-          <div class="xlsSlicerItem ${sel.has(v) ? 'sel' : ''}" data-slicer="${campo}" data-valor="${v.replace(/"/g,'&quot;')}">${v}</div>
+          <label class="xlsSlicerItem ${sel.has(v) ? 'sel' : ''}" data-slicer="${campo}" data-valor="${v.replace(/"/g,'&quot;')}">
+            <input type="checkbox" ${sel.has(v) ? 'checked' : ''} />
+            <span>${v}</span>
+          </label>
         `).join("") : `<div class="xlsSlicerItem vazio">—</div>`}
       </div>
     </div>
@@ -1407,12 +1435,14 @@ function renderTabelaExcel(rows){
     <table class="xlsTable">
       <thead>
         <tr>
+          <th style="width:36px"></th>
+          <th style="width:34px"><input type="checkbox" class="checkbox" id="checkAll" /></th>
           ${COLUNAS_EXCEL.map(c => `<th style="width:${c.width}">${c.label}</th>`).join("")}
         </tr>
       </thead>
       <tbody>
         ${rows.length ? rows.map(linhaExcel).join("") : `
-          <tr><td colspan="${COLUNAS_EXCEL.length}">
+          <tr><td colspan="${COLUNAS_EXCEL.length + 2}">
             <div class="empty">Nenhuma nota encontrada com os filtros atuais.</div>
           </td></tr>`}
       </tbody>
