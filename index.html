@@ -379,7 +379,7 @@
     border-bottom:1px solid var(--border);
   }
   .xlsSlicerItem:last-child{border-bottom:none}
-  .xlsSlicerItem input[type="checkbox"]{pointer-events:none; margin:0}
+  .xlsSlicerItem input[type="checkbox"]{margin:0; flex:none}
   .xlsSlicerItem span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
   .xlsSlicerItem:hover{background:var(--surface-2)}
   .xlsSlicerItem.sel{background:#FCE9D2; font-weight:700}
@@ -1340,15 +1340,18 @@ const STATUS_EXCEL_CLASSES = {
   "ACIMA DE 20": "xs-acima-de-20",
 };
 
+// So as colunas que ele realmente usa (pedido em 02/10/2026) -- "Chave NFe",
+// "Região" e "NFD Fornecedor" saíram (ninguém usa; as duas últimas nem têm
+// dado ainda, ver nota mais abaixo) e "ENVIO DE EMAILS" nunca entrou (era
+// botão de macro do Excel, o site já tem "Disparar cobrança" fazendo esse
+// papel). Pra voltar a mostrar alguma, e so adicionar de volta aqui + no
+// <td> correspondente em linhaExcel().
 const COLUNAS_EXCEL = [
   { label: "Possível Comprador", width: "170px" },
   { label: "Nº NFe",             width: "80px" },
   { label: "Fornecedor",         width: "240px" },
   { label: "Data Emissão",       width: "100px" },
   { label: "Empresa",            width: "220px" },
-  { label: "Chave NFe",          width: "280px" },
-  { label: "Região",             width: "110px" },
-  { label: "NFD Fornecedor",     width: "110px" },
   { label: "Vencimento",         width: "100px" },
   { label: "Valor total",        width: "110px" },
   { label: "Dias pendentes",     width: "90px" },
@@ -1380,9 +1383,6 @@ function linhaExcel(n, indice){
       <td>${n.fornecedor || "—"}</td>
       <td class="mono">${fmtData(n.data_emissao)}</td>
       <td>${n.empresa || "—"}</td>
-      <td class="mono" style="font-size:11px">${n.chave_nfe || "—"}</td>
-      <td>—</td>
-      <td>—</td>
       <td class="mono">${n.vencimento ? fmtData(n.vencimento) : "—"}</td>
       <td class="num mono">${fmtMoeda(n.valor_total)}</td>
       <td class="num mono">${diasEmissao === null ? "—" : diasEmissao}</td>
@@ -1484,8 +1484,8 @@ function renderSlicer(titulo, campo, opcoes){
       </div>
       <div class="xlsSlicerBody">
         ${itens.length ? itens.map(({chave, label}) => `
-          <label class="xlsSlicerItem ${sel.has(chave) ? 'sel' : ''}" data-slicer="${campo}" data-valor="${chave.replace(/"/g,'&quot;')}">
-            <input type="checkbox" ${sel.has(chave) ? 'checked' : ''} />
+          <label class="xlsSlicerItem ${sel.has(chave) ? 'sel' : ''}">
+            <input type="checkbox" data-slicer="${campo}" data-valor="${chave.replace(/"/g,'&quot;')}" ${sel.has(chave) ? 'checked' : ''} />
             <span>${label}</span>
           </label>
         `).join("") : `<div class="xlsSlicerItem vazio">—</div>`}
@@ -1650,10 +1650,26 @@ function wireApp(filtered){
     b.onclick = () => { viewMode = b.dataset.view; render(); };
   });
 
-  // Slicers e grafico de barras da Versao Excel: clicar num item/barra
-  // alterna ele dentro do Set (multi-selecao, igual slicer do Excel/Power
-  // BI); clicar no "✕" do cabecalho limpa so aquele slicer.
-  document.querySelectorAll("[data-slicer]").forEach(el => {
+  // Slicers (checkbox, igual o filtro de coluna do Dashboard -- ver
+  // "[data-filtrosel]" abaixo) e grafico de barras ("Faixas de tempo") da
+  // Versao Excel: marcar/clicar alterna dentro do Set (multi-selecao, igual
+  // slicer do Excel/Power BI). CORRIGIDO (02/10/2026): o data-slicer tinha
+  // ficado no <label> em vez do <input>, e o checkbox levava
+  // "pointer-events:none" -- clicar em cima do quadradinho do checkbox nao
+  // disparava nada (so clicar no texto ao lado funcionava), parecendo que a
+  // caixa de selecao "nao funcionava". Agora o input e' o alvo de verdade,
+  // com "change" (igual os outros checkboxes do site).
+  document.querySelectorAll("input[data-slicer]").forEach(cb => {
+    cb.onclick = (e) => e.stopPropagation();
+    cb.onchange = () => {
+      const campo = cb.dataset.slicer;
+      const valor = cb.dataset.valor;
+      const sel = xlsFiltros[campo];
+      if(cb.checked) sel.add(valor); else sel.delete(valor);
+      render();
+    };
+  });
+  document.querySelectorAll(".xlsBarCol[data-slicer]").forEach(el => {
     el.onclick = () => {
       const campo = el.dataset.slicer;
       const valor = el.dataset.valor;
