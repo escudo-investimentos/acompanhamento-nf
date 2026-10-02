@@ -903,7 +903,7 @@ function renderApp(){
   // pronto) -- ver aplicarXlsFiltros()/renderSlicer()/renderGraficoFaixas().
   const opcoesComprador = valoresUnicos(aplicarXlsFiltros(filtered, "comprador"), valorComprador);
   const opcoesFornecedor = valoresUnicos(aplicarXlsFiltros(filtered, "fornecedor"), valorFornecedor);
-  const opcoesEmpresa = valoresUnicos(aplicarXlsFiltros(filtered, "empresa"), valorEmpresa);
+  const opcoesEmpresa = opcoesEmpresaAgrupadas(aplicarXlsFiltros(filtered, "empresa"));
   const baseParaGrafico = aplicarXlsFiltros(filtered, "status");
   const contagensStatus = {};
   STATUS_EXCEL_ORDEM.forEach(s => contagensStatus[s] = 0);
@@ -945,6 +945,36 @@ function renderApp(){
           <div class="xlsTitle">ACOMPANHAMENTO DE NF-e</div>
           <div class="search">
             🔎 <input id="searchInput" placeholder="Buscar nº, fornecedor..." value="${searchTerm}" />
+          </div>
+        </div>
+
+        <div class="controls" style="margin-bottom:16px">
+          <div class="tabs" id="tabs">
+            ${STATUS_ORDER.map(s => `
+              <button class="tab ${activeTab===s?'active':''}" data-tab="${s}">
+                ${STATUS_LABELS[s]} · ${counts[s]||0}
+              </button>`).join("")}
+            ${isAdminUser() ? `
+              <button class="tab ${activeTab==='APROVACOES'?'active':''}" data-tab="APROVACOES" style="margin-left:8px">
+                🔐 Aprovações${perfisPendentes.length ? ` · ${perfisPendentes.length}` : ""}
+              </button>` : ""}
+          </div>
+          <select class="filter" id="faixaFilter">
+            <option value="TODAS" ${activeFaixa==='TODAS'?'selected':''}>Todas as urgências</option>
+            <option value="ABAIXO_15" ${activeFaixa==='ABAIXO_15'?'selected':''}>Abaixo de 15 dias</option>
+            <option value="15_A_20" ${activeFaixa==='15_A_20'?'selected':''}>15 a 20 dias</option>
+            <option value="ACIMA_20" ${activeFaixa==='ACIMA_20'?'selected':''}>Acima de 20 dias</option>
+            <option value="MAIS_DE_15_EMISSAO" ${activeFaixa==='MAIS_DE_15_EMISSAO'?'selected':''}>Acima de 15 dias (da emissão)</option>
+            <option value="SEM_IDENTIFICACAO" ${activeFaixa==='SEM_IDENTIFICACAO'?'selected':''}>Sem identificação</option>
+            <option value="SOLICITAR_DESCONHECIMENTO" ${activeFaixa==='SOLICITAR_DESCONHECIMENTO'?'selected':''}>Solicitar desconhecimento (+60d)</option>
+            <option value="VENC_ABAIXO_12" ${activeFaixa==='VENC_ABAIXO_12'?'selected':''}>Abaixo de 12 dias (p/ vencimento)</option>
+            <option value="VENC_12_A_15" ${activeFaixa==='VENC_12_A_15'?'selected':''}>12 a 15 dias (p/ vencimento)</option>
+            <option value="VENC_ACIMA_15" ${activeFaixa==='VENC_ACIMA_15'?'selected':''}>Acima de 15 dias (p/ vencimento)</option>
+          </select>
+          <div class="dateRange">
+            <label>De <input type="date" id="dataDe" value="${dataDe}" /></label>
+            <label>Até <input type="date" id="dataAte" value="${dataAte}" /></label>
+            ${(dataDe||dataAte) ? `<button class="btn small ghost" id="btnLimparPeriodo" title="Limpar período">✕</button>` : ""}
           </div>
         </div>
 
@@ -1376,6 +1406,32 @@ function valorComprador(n){ return n.possivel_comprador || "SEM SUGESTÃO"; }
 function valorFornecedor(n){ return n.fornecedor || "—"; }
 function valorEmpresa(n){ return n.empresa || "—"; }
 
+// Normaliza o nome da empresa pra agrupar variacoes de escrita da MESMA
+// empresa como uma unica opcao no slicer -- pedido em 02/10/2026 ("se tem
+// 100 escudo nao quero 100 empresas escudo no filtro"). O nome vem em texto
+// livre do XML da NFe, entao a mesma empresa aparece grafada de jeitos
+// diferentes (com/sem pontuacao, abreviada ou nao: "IND" x "INDUSTRIA",
+// "CONST" x "CONSTRUTORA", com ou sem o "E" de ligacao, etc.). So agrupa --
+// nao mexe no texto exibido (ver opcoesEmpresaAgrupadas, que usa a grafia
+// mais frequente de cada grupo como rotulo).
+const EMPRESA_ABREV = {
+  IND: "INDUSTRIA", COM: "COMERCIO", COML: "COMERCIAL", COMERC: "COMERCIO",
+  CIA: "COMPANHIA", CONST: "CONSTRUTORA", CONSTR: "CONSTRUTORA",
+  EMPREEND: "EMPREENDIMENTOS", IMOB: "IMOBILIARIA",
+};
+const EMPRESA_IGNORAR = new Set(["LTDA", "EPP", "ME", "SA", "S", "A", "E"]);
+function normalizarEmpresa(nome){
+  if(!nome || nome === "—") return "—";
+  let s = nome.toUpperCase();
+  try { s = s.normalize("NFD").replace(/[̀-ͯ]/g, ""); } catch(e){}
+  s = s.replace(/[^A-Z0-9]+/g, " ");
+  const tokens = s.split(" ").filter(Boolean)
+    .map(t => EMPRESA_ABREV[t] || t)
+    .filter(t => !EMPRESA_IGNORAR.has(t));
+  return tokens.join(" ");
+}
+function chaveEmpresa(n){ return normalizarEmpresa(valorEmpresa(n)); }
+
 // Aplica os 4 slicers numa lista, menos o que estiver em `exceto` -- assim
 // cada slicer/grafico mostra suas opcoes/contagens calculadas com os OUTROS
 // filtros ja aplicados, mas sem sumir a si mesmo quando voce seleciona algo
@@ -1384,7 +1440,7 @@ function aplicarXlsFiltros(lista, exceto){
   return lista.filter(n => {
     if(exceto!=="comprador" && xlsFiltros.comprador.size && !xlsFiltros.comprador.has(valorComprador(n))) return false;
     if(exceto!=="fornecedor" && xlsFiltros.fornecedor.size && !xlsFiltros.fornecedor.has(valorFornecedor(n))) return false;
-    if(exceto!=="empresa" && xlsFiltros.empresa.size && !xlsFiltros.empresa.has(valorEmpresa(n))) return false;
+    if(exceto!=="empresa" && xlsFiltros.empresa.size && !xlsFiltros.empresa.has(chaveEmpresa(n))) return false;
     if(exceto!=="status" && xlsFiltros.status.size && !xlsFiltros.status.has(statusExcel(n))) return false;
     return true;
   });
@@ -1394,8 +1450,32 @@ function valoresUnicos(lista, fn){
   return Array.from(new Set(lista.map(fn))).sort((a,b) => a.localeCompare(b, "pt-BR"));
 }
 
+// Opcoes do slicer "Empresa": agrupadas por normalizarEmpresa(), rotuladas
+// com a grafia mais frequente de cada grupo (ver comentario acima).
+function opcoesEmpresaAgrupadas(lista){
+  const grupos = new Map(); // chave -> Map(grafia original -> contagem)
+  lista.forEach(n => {
+    const bruto = valorEmpresa(n);
+    const chave = normalizarEmpresa(bruto);
+    if(!grupos.has(chave)) grupos.set(chave, new Map());
+    const g = grupos.get(chave);
+    g.set(bruto, (g.get(bruto) || 0) + 1);
+  });
+  const opcoes = [];
+  grupos.forEach((grafias, chave) => {
+    let melhorLabel = chave, melhorN = -1;
+    grafias.forEach((cnt, grafia) => { if(cnt > melhorN){ melhorN = cnt; melhorLabel = grafia; } });
+    opcoes.push({ chave, label: melhorLabel });
+  });
+  opcoes.sort((a,b) => a.label.localeCompare(b.label, "pt-BR"));
+  return opcoes;
+}
+
 function renderSlicer(titulo, campo, opcoes){
   const sel = xlsFiltros[campo];
+  // Cada opcao pode ser uma string simples (comprador/fornecedor/status) ou
+  // {chave,label} (empresa, ja agrupada -- ver opcoesEmpresaAgrupadas).
+  const itens = opcoes.map(o => typeof o === "string" ? { chave: o, label: o } : o);
   return `
     <div class="xlsSlicer">
       <div class="xlsSlicerHead">
@@ -1403,10 +1483,10 @@ function renderSlicer(titulo, campo, opcoes){
         ${sel.size ? `<button type="button" class="xlsSlicerClear" data-slicerclear="${campo}" title="Limpar">✕</button>` : ""}
       </div>
       <div class="xlsSlicerBody">
-        ${opcoes.length ? opcoes.map(v => `
-          <label class="xlsSlicerItem ${sel.has(v) ? 'sel' : ''}" data-slicer="${campo}" data-valor="${v.replace(/"/g,'&quot;')}">
-            <input type="checkbox" ${sel.has(v) ? 'checked' : ''} />
-            <span>${v}</span>
+        ${itens.length ? itens.map(({chave, label}) => `
+          <label class="xlsSlicerItem ${sel.has(chave) ? 'sel' : ''}" data-slicer="${campo}" data-valor="${chave.replace(/"/g,'&quot;')}">
+            <input type="checkbox" ${sel.has(chave) ? 'checked' : ''} />
+            <span>${label}</span>
           </label>
         `).join("") : `<div class="xlsSlicerItem vazio">—</div>`}
       </div>
