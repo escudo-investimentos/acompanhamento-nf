@@ -318,6 +318,41 @@
     .stats{grid-template-columns:repeat(2,1fr)}
     main{padding:14px}
   }
+
+  /* ---------- Toggle Dashboard / Versão Excel (02/10/2026) ---------- */
+  .viewToggle{display:flex; gap:3px; background:var(--surface-2); padding:3px; border-radius:9px}
+  .vt{border:none; background:transparent; padding:7px 12px; border-radius:7px; font-weight:700; font-size:12.5px; color:var(--text-dim); cursor:pointer}
+  .vt.active{background:var(--surface); color:var(--text); box-shadow:var(--shadow)}
+
+  /* ---------- Versão Excel: imita a planilha Acompanhamento_de_Notas_Fiscais.xlsm ---------- */
+  .xlsTitleBar{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px}
+  .xlsTitle{font-family:"Manrope"; font-weight:800; font-size:20px; letter-spacing:.01em}
+  table.xlsTable{border-collapse:collapse; font-size:12.5px; font-family:Calibri,Arial,sans-serif}
+  table.xlsTable th{
+    background:#1F4E78; color:#fff; text-align:left; font-weight:700; font-size:12px;
+    padding:7px 9px; border:1px solid #16395a; white-space:nowrap; position:sticky; top:0; z-index:2;
+  }
+  table.xlsTable td{padding:5px 9px; border:1px solid #d7deea; white-space:nowrap}
+  table.xlsTable tbody tr:nth-child(even){background:#DCE6F2}
+  table.xlsTable tbody tr:nth-child(odd){background:#fff}
+  table.xlsTable tbody tr:hover{background:#c9ddf5}
+  @media (prefers-color-scheme: dark){
+    table.xlsTable tbody tr:nth-child(even){background:#1d2f44}
+    table.xlsTable tbody tr:nth-child(odd){background:#141c26}
+    table.xlsTable tbody tr:hover{background:#28415c}
+    table.xlsTable td{border-color:#2a3850; color:#e7edf5}
+  }
+  table.xlsTable input.rowtext, table.xlsTable select.rowselect{
+    width:100%; border:1px solid transparent; background:transparent; font:inherit; color:inherit; padding:2px 4px; border-radius:4px;
+  }
+  table.xlsTable input.rowtext:hover, table.xlsTable select.rowselect:hover{border-color:var(--border)}
+  table.xlsTable input.rowtext:focus, table.xlsTable select.rowselect:focus{border-color:var(--accent); background:var(--surface)}
+  .xlsStatus{display:inline-block; padding:2px 8px; border-radius:4px; font-weight:700; font-size:11px; white-space:nowrap}
+  .xlsStatus.xs-vencido{background:#F8D7DA; color:#842029}
+  .xlsStatus.xs-abaixo-de-15-dias{background:#FFF3CD; color:#664D03}
+  .xlsStatus.xs-13-a-20{background:#FFE8CC; color:#7A4A00}
+  .xlsStatus.xs-acima-de-20{background:#D1E7DD; color:#0F5132}
+  .xlsStatus.xs-sem-identificacao{background:#E2E3E5; color:#41464B}
 </style>
 </head>
 <body>
@@ -359,6 +394,13 @@ let meuPerfil = null;        // {aprovado, email} do usuario logado -- null enqu
 let perfisPendentes = [];    // so preenchido pra quem e admin (aba Aprovacoes)
 let activeTab = "EXPORT";
 let activeFaixa = "TODAS";
+// "dashboard" (padrao, com KPIs/abas/filtros) ou "excel" (tabela no mesmo
+// layout/colunas da planilha Acompanhamento_de_Notas_Fiscais.xlsm, que a
+// pessoa que faz o acompanhamento ja usava e preferiu) -- pedido em
+// 02/10/2026. Mesma base de dados (array `notas`) nas duas: editar um campo
+// em qualquer uma das duas views grava no mesmo banco (Supabase) na hora,
+// entao a outra view ja reflete a mudanca (via realtime) sem nada especial.
+let viewMode = "dashboard";
 let searchTerm = "";
 let selected = new Set();
   // Default (02/10/2026): abre já no mesmo recorte que o Michel usa pra
@@ -828,6 +870,10 @@ function renderApp(){
           <small>Construtora Escudo</small>
         </div>
       </div>
+      <div class="viewToggle" id="viewToggle">
+        <button type="button" class="vt ${viewMode==='dashboard'?'active':''}" data-view="dashboard">📊 Dashboard</button>
+        <button type="button" class="vt ${viewMode==='excel'?'active':''}" data-view="excel">📗 Versão Excel</button>
+      </div>
       <div class="who">
         <span>${session.user.email}</span>
         <button class="btn small ghost" id="btnRefresh" title="Atualizar">↻ Atualizar</button>
@@ -835,6 +881,22 @@ function renderApp(){
       </div>
     </div>
     <main>
+      ${viewMode === "excel" ? `
+        <div class="xlsTitleBar">
+          <div class="xlsTitle">ACOMPANHAMENTO DE NF-e</div>
+          <div class="search">
+            🔎 <input id="searchInput" placeholder="Buscar nº, fornecedor..." value="${searchTerm}" />
+          </div>
+        </div>
+        <div class="table-scroll-top" id="tableScrollTop"><div class="table-scroll-top-inner" id="tableScrollTopInner"></div></div>
+        <div class="table-wrap" id="tableWrap">
+          ${renderTabelaExcel(filtered)}
+        </div>
+        <div class="foot">
+          <span>${filtered.length} nota(s) exibida(s)</span>
+          <span>Mesmos dados da versão Dashboard — editar aqui atualiza lá também</span>
+        </div>
+      ` : `
       <div class="stats">
         <div class="stat clickable ${activeFaixa==='TODAS'?'stat-active':''}" data-faixa="TODAS" title="Ver todas"><div class="n mono">${stats.total}</div><div class="l">Em acompanhamento (NF-e sem título)</div></div>
         <div class="stat clickable ${activeFaixa==='ABAIXO_15'?'stat-active':''}" data-faixa="ABAIXO_15" title="Ver essas notas"><div class="n mono">${stats.abaixo15}</div><div class="l">Abaixo de 15 dias (da emissão)</div></div>
@@ -904,6 +966,7 @@ function renderApp(){
         <span>${filtered.length} nota(s) exibida(s)</span>
         <span>Sincronizado automaticamente com o Sienge</span>
       </div>
+      `}
     </main>
   `;
 
@@ -1134,6 +1197,111 @@ function ordenarLista(lista){
   return copia;
 }
 
+/* ============================================================
+   VERSÃO EXCEL — mesmas colunas/ordem/rótulos da planilha
+   Acompanhamento_de_Notas_Fiscais.xlsm (aba "Export", tabela Table1) que a
+   pessoa responsavel pelo acompanhamento ja usava e preferia (pedido em
+   02/10/2026). Mesmos dados de `notas` que a versao Dashboard -- so o
+   layout muda; os campos editaveis (Possivel comprador / Observacao) usam
+   o mesmo data-field/saveField(), entao editar aqui grava no Supabase
+   igual, e a versao Dashboard reflete via realtime.
+   ============================================================ */
+// Mesma formula que a planilha usava na coluna STATUS (coluna O da tabela
+// Table1): baseada na data de VENCIMENTO da 1a parcela da NFe (dVenc do
+// XML) -- OBS: diferente da "Urgencia" do Dashboard, que e baseada em dias
+// desde a EMISSAO (a maioria das notas ainda nao tem vencimento vindo do
+// Sienge/XML, ver comentario em faixaDe()). Mantida igual ao Excel aqui de
+// proposito, pra bater com o que a pessoa ja estava acostumada a ver.
+function statusExcel(n){
+  if(!n.vencimento) return "SEM IDENTIFICAÇÃO";
+  const dv = diasAteVencimento(n);
+  if(dv < 0) return "VENCIDO";
+  if(dv <= 15) return "ABAIXO DE 15 DIAS";
+  if(dv <= 20) return "13 A 20";
+  return "ACIMA DE 20";
+}
+// Classe CSS fixa por status (evita depender de slugificar texto com
+// acento -- "ç"/"ã" davam classe errada quando geradas automaticamente).
+const STATUS_EXCEL_CLASSES = {
+  "SEM IDENTIFICAÇÃO": "xs-sem-identificacao",
+  "VENCIDO": "xs-vencido",
+  "ABAIXO DE 15 DIAS": "xs-abaixo-de-15-dias",
+  "13 A 20": "xs-13-a-20",
+  "ACIMA DE 20": "xs-acima-de-20",
+};
+
+const COLUNAS_EXCEL = [
+  { label: "Possível Comprador", width: "170px" },
+  { label: "Nº NFe",             width: "80px" },
+  { label: "Fornecedor",         width: "240px" },
+  { label: "Data Emissão",       width: "100px" },
+  { label: "Empresa",            width: "220px" },
+  { label: "Chave NFe",          width: "280px" },
+  { label: "Região",             width: "110px" },
+  { label: "NFD Fornecedor",     width: "110px" },
+  { label: "Vencimento",         width: "100px" },
+  { label: "Valor total",        width: "110px" },
+  { label: "Dias pendentes",     width: "90px" },
+  { label: "Dias até o vencimento", width: "100px" },
+  { label: "OBSERVAÇÃO",         width: "220px" },
+  { label: "STATUS",             width: "140px" },
+  { label: "DIAS DESDE EMISSÃO", width: "90px" },
+  { label: "SOLICITAR DESCONHECIMENTO", width: "150px" },
+];
+
+function linhaExcel(n){
+  const diasEmissao = diasDesde(n.data_emissao);
+  const diasVenc = diasAteVencimento(n);
+  const status = statusExcel(n);
+  const statusCls = STATUS_EXCEL_CLASSES[status] || "";
+  const solicitar = diasEmissao !== null && diasEmissao > 60;
+  return `
+    <tr data-id="${n.id}">
+      <td>
+        <select class="rowselect" data-field="possivel_comprador" data-id="${n.id}">
+          <option value="">SEM SUGESTÃO</option>
+          ${compradores.map(c => `<option value="${c.nome}" ${n.possivel_comprador===c.nome?'selected':''}>${c.nome}</option>`).join("")}
+        </select>
+      </td>
+      <td class="mono">${n.numero_nf ?? "—"}</td>
+      <td>${n.fornecedor || "—"}</td>
+      <td class="mono">${fmtData(n.data_emissao)}</td>
+      <td>${n.empresa || "—"}</td>
+      <td class="mono" style="font-size:11px">${n.chave_nfe || "—"}</td>
+      <td>—</td>
+      <td>—</td>
+      <td class="mono">${n.vencimento ? fmtData(n.vencimento) : "—"}</td>
+      <td class="num mono">${fmtMoeda(n.valor_total)}</td>
+      <td class="num mono">${diasEmissao === null ? "—" : diasEmissao}</td>
+      <td class="num mono">${diasVenc === null ? "—" : diasVenc}</td>
+      <td>
+        <input class="rowtext" type="text" data-field="observacao" data-id="${n.id}" value="${(n.observacao||"").replace(/"/g,'&quot;')}" placeholder="—" />
+      </td>
+      <td><span class="xlsStatus ${statusCls}">${status}</span></td>
+      <td class="num mono">${diasEmissao === null ? "—" : diasEmissao}</td>
+      <td>${solicitar ? `<span class="xlsStatus xs-vencido">SOLICITAR DESCONHECIMENTO</span>` : ""}</td>
+    </tr>
+  `;
+}
+
+function renderTabelaExcel(rows){
+  return `
+    <table class="xlsTable">
+      <thead>
+        <tr>
+          ${COLUNAS_EXCEL.map(c => `<th style="width:${c.width}">${c.label}</th>`).join("")}
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.length ? rows.map(linhaExcel).join("") : `
+          <tr><td colspan="${COLUNAS_EXCEL.length}">
+            <div class="empty">Nenhuma nota encontrada com os filtros atuais.</div>
+          </td></tr>`}
+      </tbody>
+    </table>
+  `;
+}
+
 function renderTable(rows){
   return `
     <table>
@@ -1250,10 +1418,15 @@ function wireApp(filtered){
   document.getElementById("btnLogout").onclick = async () => { await sb.auth.signOut(); selected.clear(); };
   document.getElementById("btnRefresh").onclick = async () => { await loadAll(); toast("Atualizado"); };
 
-  document.getElementById("tabs").querySelectorAll("[data-tab]").forEach(b => {
+  document.getElementById("viewToggle")?.querySelectorAll("[data-view]").forEach(b => {
+    b.onclick = () => { viewMode = b.dataset.view; render(); };
+  });
+
+  document.getElementById("tabs")?.querySelectorAll("[data-tab]").forEach(b => {
     b.onclick = () => { activeTab = b.dataset.tab; selected.clear(); render(); };
   });
-  document.getElementById("faixaFilter").onchange = (e) => { activeFaixa = e.target.value; render(); };
+  const faixaFilterEl = document.getElementById("faixaFilter");
+  if(faixaFilterEl) faixaFilterEl.onchange = (e) => { activeFaixa = e.target.value; render(); };
 
   // Cards do topo (stats) clicaveis: clicar filtra a tabela pra essa faixa
   // (mesmo mecanismo do dropdown "Todas as urgencias" acima) -- clicar de
@@ -1265,10 +1438,13 @@ function wireApp(filtered){
       render();
     };
   });
-  document.getElementById("searchInput").oninput = (e) => { searchTerm = e.target.value; colunaFocoAtual = "__search__"; render(); };
+  const searchInputEl = document.getElementById("searchInput");
+  if(searchInputEl) searchInputEl.oninput = (e) => { searchTerm = e.target.value; colunaFocoAtual = "__search__"; render(); };
 
-  document.getElementById("dataDe").onchange = (e) => { dataDe = e.target.value; render(); };
-  document.getElementById("dataAte").onchange = (e) => { dataAte = e.target.value; render(); };
+  const dataDeEl = document.getElementById("dataDe");
+  const dataAteEl = document.getElementById("dataAte");
+  if(dataDeEl) dataDeEl.onchange = (e) => { dataDe = e.target.value; render(); };
+  if(dataAteEl) dataAteEl.onchange = (e) => { dataAte = e.target.value; render(); };
   document.getElementById("btnLimparPeriodo")?.addEventListener("click", () => { dataDe = ""; dataAte = ""; render(); });
   document.getElementById("btnLimparFiltrosColuna")?.addEventListener("click", () => { columnFilters = {}; render(); });
 
@@ -1357,15 +1533,13 @@ function wireApp(filtered){
   // tecla o re-render tiraria o foco do usuario).
   if(colunaFocoAtual === "__search__"){
     const si = document.getElementById("searchInput");
-    si.focus();
-    si.setSelectionRange(si.value.length, si.value.length);
+    if(si){ si.focus(); si.setSelectionRange(si.value.length, si.value.length); }
   } else if(colunaFocoAtual === "__filtroBusca__"){
     const fb = document.getElementById("filtroBusca");
     if(fb){ fb.focus(); fb.setSelectionRange(fb.value.length, fb.value.length); }
   } else {
     const si = document.getElementById("searchInput");
-    si.focus();
-    si.setSelectionRange(si.value.length, si.value.length);
+    if(si){ si.focus(); si.setSelectionRange(si.value.length, si.value.length); }
   }
 
   const checkAll = document.getElementById("checkAll");
