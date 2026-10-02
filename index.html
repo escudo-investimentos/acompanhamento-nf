@@ -383,6 +383,19 @@ let colunaFocoAtual = null;       // qual campo de busca estava com foco antes d
 
 // Definicao das colunas da tabela, pra gerar o filtro estilo Excel e casar
 // com o texto que aparece em cada celula.
+// Etapas fixas do fluxo interno (02/10/2026) -- preenchimento manual, nao
+// vem de nenhuma integracao. Pra mudar as etapas no futuro, so editar essas
+// duas constantes (ordem + rotulo); nenhum outro lugar do codigo depende
+// dos nomes exatos.
+const FLUXO_INTERNO_ORDEM = ["", "RECEBIDA", "EM_CONFERENCIA", "APROVADA", "LANCADA"];
+const FLUXO_INTERNO_LABELS = {
+  "": "—",
+  RECEBIDA: "Recebida",
+  EM_CONFERENCIA: "Em conferência",
+  APROVADA: "Aprovada",
+  LANCADA: "Lançada",
+};
+
 const COLUNAS = [
   { id: "numero_nf",      label: "Nº NF",              valor: n => n.numero_nf || "" },
   { id: "fornecedor",     label: "Fornecedor",         valor: n => n.fornecedor || "" },
@@ -394,7 +407,13 @@ const COLUNAS = [
   // igual um autofiltro de Excel. Com a lista fixa, fica igual um slicer do
   // Power BI: sempre mostra todas as categorias possiveis, mesmo com 0
   // notas batendo com alguma delas no momento.
-  { id: "manifestacao",   label: "Manifestação",       valor: n => n.manifestacao || "",
+  // Rotulo com "(SEFAZ)" explicito (02/10/2026): pedido depois de confusao
+  // de quem acompanha o fluxo interno -- "Manifestacao" aqui e um evento
+  // FISCAL que a Escudo manda pra SEFAZ (normalmente automatico, via
+  // Sienge, assim que a nota chega na caixa postal eletronica do CNPJ),
+  // nao tem nenhuma relacao com o andamento interno (conferencia/aprovacao/
+  // lancamento) -- ver a nova coluna "fluxo_interno" logo abaixo pra isso.
+  { id: "manifestacao",   label: "Manifestação (SEFAZ)", valor: n => n.manifestacao || "",
     opcoesFixas: ["", "SEM MANIFESTACAO", "CIENCIA/CONFIRMACAO", "DESCONHECIDA", "NAO REALIZADA", "OUTRO SISTEMA"] },
   { id: "emissao",        label: "Emissão",            valor: n => fmtData(n.data_emissao),
     sortValor: n => n.data_emissao || "" },
@@ -413,6 +432,12 @@ const COLUNAS = [
     sortValor: n => Number(n.valor_total || 0) },
   { id: "comprador",      label: "Possível comprador", width: "170px", valor: n => n.possivel_comprador || "" },
   { id: "observacao",     label: "Observação", width: "220px", valor: n => n.observacao || "" },
+  // Coluna nova (02/10/2026): preenchimento manual do fluxo INTERNO de
+  // vocês (recebimento/conferencia/aprovacao/lancamento) -- separada de
+  // "Manifestação (SEFAZ)", que e so o evento fiscal (ver nota acima).
+  { id: "fluxo_interno",  label: "Fluxo interno", width: "150px",
+    valor: n => FLUXO_INTERNO_LABELS[n.fluxo_interno || ""] || "",
+    opcoesFixas: FLUXO_INTERNO_ORDEM.map(k => FLUXO_INTERNO_LABELS[k]) },
   { id: "status",         label: "Status", width: "150px",
     valor: n => STATUS_LABELS[n.status_manual || "EXPORT"] },
 ];
@@ -1171,6 +1196,11 @@ function rowHtml(n){
       </td>
       <td>
         <input class="rowtext" type="text" data-field="observacao" data-id="${n.id}" value="${(n.observacao||"").replace(/"/g,'&quot;')}" placeholder="—" />
+      </td>
+      <td>
+        <select class="rowselect" data-field="fluxo_interno" data-id="${n.id}">
+          ${FLUXO_INTERNO_ORDEM.map(k => `<option value="${k}" ${(n.fluxo_interno||"")===k?'selected':''}>${FLUXO_INTERNO_LABELS[k]}</option>`).join("")}
+        </select>
       </td>
       <td>
         <select class="statuspill ${statusClass(n.status_manual)}" data-field="status_manual" data-id="${n.id}">
