@@ -353,6 +353,35 @@
   .xlsStatus.xs-13-a-20{background:#FFE8CC; color:#7A4A00}
   .xlsStatus.xs-acima-de-20{background:#D1E7DD; color:#0F5132}
   .xlsStatus.xs-sem-identificacao{background:#E2E3E5; color:#41464B}
+
+  /* ---------- Slicers + gráfico "Faixas de tempo" da Versão Excel (02/10/2026) ---------- */
+  .xlsPainel{display:flex; align-items:stretch; gap:14px; margin-bottom:16px; flex-wrap:wrap}
+  .xlsSlicers{display:flex; gap:10px; flex-wrap:wrap}
+  .xlsSlicer{
+    width:168px; border:1px solid #E8A33D; border-radius:6px; background:var(--surface);
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+  .xlsSlicerHead{
+    display:flex; align-items:center; justify-content:space-between; gap:6px; padding:6px 9px;
+    font-weight:700; font-size:11.5px; border-bottom:1px solid #E8A33D; background:var(--surface-2);
+  }
+  .xlsSlicerClear{border:none; background:transparent; color:var(--text-dim); cursor:pointer; font-size:12px; line-height:1; padding:2px}
+  .xlsSlicerClear:hover{color:var(--text)}
+  .xlsSlicerBody{max-height:168px; overflow:auto; padding:3px}
+  .xlsSlicerItem{padding:5px 8px; font-size:12px; border-radius:3px; cursor:pointer; margin:1px 0}
+  .xlsSlicerItem:hover{background:var(--surface-2)}
+  .xlsSlicerItem.sel{background:#F4A23A; color:#fff; font-weight:700}
+  .xlsSlicerItem.vazio{color:var(--text-dim); cursor:default; text-align:center}
+  .xlsSlicerItem.vazio:hover{background:transparent}
+
+  .xlsChart{display:flex; align-items:flex-end; gap:16px; padding:10px 18px 2px; min-width:360px; flex:1}
+  .xlsBarCol{display:flex; flex-direction:column; align-items:center; width:64px; height:100%; cursor:pointer}
+  .xlsBarN{font-weight:800; font-size:13px; margin-bottom:4px}
+  .xlsBarTrack{width:30px; height:128px; display:flex; align-items:flex-end}
+  .xlsBar{width:100%; background:#ED7D31; border-radius:2px 2px 0 0; transition:height .15s}
+  .xlsBarCol.sel .xlsBar{background:#C45A10}
+  .xlsBarL{font-size:10px; font-weight:700; color:var(--text-dim); text-align:center; margin-top:6px; line-height:1.25}
+  .xlsBarCol:hover .xlsBarL{color:var(--text)}
 </style>
 </head>
 <body>
@@ -401,6 +430,12 @@ let activeFaixa = "TODAS";
 // em qualquer uma das duas views grava no mesmo banco (Supabase) na hora,
 // entao a outra view ja reflete a mudanca (via realtime) sem nada especial.
 let viewMode = "dashboard";
+// Filtros de segmentação (estilo "slicer" do Excel/Power BI) exclusivos da
+// Versão Excel -- pedido em 02/10/2026, igual aos quadradinhos
+// "Controle[Possível Comprador]"/"Controle[Fornecedor]"/"Empresa_bd[...]"/
+// "STATUS" da planilha. Cada Set guarda os valores SELECIONADOS (vazio =
+// "todos", igual um slicer sem nada clicado).
+let xlsFiltros = { comprador: new Set(), fornecedor: new Set(), empresa: new Set(), status: new Set() };
 let searchTerm = "";
 let selected = new Set();
   // Default (02/10/2026): abre já no mesmo recorte que o Michel usa pra
@@ -851,6 +886,18 @@ function renderApp(){
   const counts = getTabCounts();
   const stats = getStats();
 
+  // Dados dos slicers/grafico da Versao Excel (so usados quando
+  // viewMode==="excel", mas calculados aqui porque "filtered" ja esta
+  // pronto) -- ver aplicarXlsFiltros()/renderSlicer()/renderGraficoFaixas().
+  const opcoesComprador = valoresUnicos(aplicarXlsFiltros(filtered, "comprador"), valorComprador);
+  const opcoesFornecedor = valoresUnicos(aplicarXlsFiltros(filtered, "fornecedor"), valorFornecedor);
+  const opcoesEmpresa = valoresUnicos(aplicarXlsFiltros(filtered, "empresa"), valorEmpresa);
+  const baseParaGrafico = aplicarXlsFiltros(filtered, "status");
+  const contagensStatus = {};
+  STATUS_EXCEL_ORDEM.forEach(s => contagensStatus[s] = 0);
+  baseParaGrafico.forEach(n => { contagensStatus[statusExcel(n)]++; });
+  const filtradosExcel = aplicarXlsFiltros(filtered, null);
+
   // Preserva a posicao de rolagem da tabela entre re-renders (02/10/2026):
   // toda atualizacao em tempo real (realtime) ou refresh ao voltar de outra
   // aba/janela (visibilitychange) chama render(), que reconstroi o HTML
@@ -888,12 +935,23 @@ function renderApp(){
             🔎 <input id="searchInput" placeholder="Buscar nº, fornecedor..." value="${searchTerm}" />
           </div>
         </div>
+
+        <div class="xlsPainel">
+          <div class="xlsSlicers">
+            ${renderSlicer("Possível Comprador", "comprador", opcoesComprador)}
+            ${renderSlicer("Fornecedor", "fornecedor", opcoesFornecedor)}
+            ${renderSlicer("Empresa", "empresa", opcoesEmpresa)}
+            ${renderSlicer("STATUS", "status", STATUS_EXCEL_ORDEM)}
+          </div>
+          ${renderGraficoFaixas(contagensStatus)}
+        </div>
+
         <div class="table-scroll-top" id="tableScrollTop"><div class="table-scroll-top-inner" id="tableScrollTopInner"></div></div>
         <div class="table-wrap" id="tableWrap">
-          ${renderTabelaExcel(filtered)}
+          ${renderTabelaExcel(filtradosExcel)}
         </div>
         <div class="foot">
-          <span>${filtered.length} nota(s) exibida(s)</span>
+          <span>${filtradosExcel.length} nota(s) exibida(s)</span>
           <span>Mesmos dados da versão Dashboard — editar aqui atualiza lá também</span>
         </div>
       ` : `
@@ -1284,6 +1342,66 @@ function linhaExcel(n){
   `;
 }
 
+const STATUS_EXCEL_ORDEM = ["13 A 20", "ABAIXO DE 15 DIAS", "ACIMA DE 20", "SEM IDENTIFICAÇÃO", "VENCIDO"];
+
+// Filtros de segmentação (slicers) da Versão Excel -- pedido em 02/10/2026
+// igual aos quadradinhos "Possível Comprador"/"Fornecedor"/"Empresa"/
+// "STATUS" e ao gráfico de barras "Faixas de tempo" da planilha.
+function valorComprador(n){ return n.possivel_comprador || "SEM SUGESTÃO"; }
+function valorFornecedor(n){ return n.fornecedor || "—"; }
+function valorEmpresa(n){ return n.empresa || "—"; }
+
+// Aplica os 4 slicers numa lista, menos o que estiver em `exceto` -- assim
+// cada slicer/grafico mostra suas opcoes/contagens calculadas com os OUTROS
+// filtros ja aplicados, mas sem sumir a si mesmo quando voce seleciona algo
+// nele (igual o comportamento padrao de slicer no Excel/Power BI).
+function aplicarXlsFiltros(lista, exceto){
+  return lista.filter(n => {
+    if(exceto!=="comprador" && xlsFiltros.comprador.size && !xlsFiltros.comprador.has(valorComprador(n))) return false;
+    if(exceto!=="fornecedor" && xlsFiltros.fornecedor.size && !xlsFiltros.fornecedor.has(valorFornecedor(n))) return false;
+    if(exceto!=="empresa" && xlsFiltros.empresa.size && !xlsFiltros.empresa.has(valorEmpresa(n))) return false;
+    if(exceto!=="status" && xlsFiltros.status.size && !xlsFiltros.status.has(statusExcel(n))) return false;
+    return true;
+  });
+}
+
+function valoresUnicos(lista, fn){
+  return Array.from(new Set(lista.map(fn))).sort((a,b) => a.localeCompare(b, "pt-BR"));
+}
+
+function renderSlicer(titulo, campo, opcoes){
+  const sel = xlsFiltros[campo];
+  return `
+    <div class="xlsSlicer">
+      <div class="xlsSlicerHead">
+        <span>${titulo}</span>
+        ${sel.size ? `<button type="button" class="xlsSlicerClear" data-slicerclear="${campo}" title="Limpar">✕</button>` : ""}
+      </div>
+      <div class="xlsSlicerBody">
+        ${opcoes.length ? opcoes.map(v => `
+          <div class="xlsSlicerItem ${sel.has(v) ? 'sel' : ''}" data-slicer="${campo}" data-valor="${v.replace(/"/g,'&quot;')}">${v}</div>
+        `).join("") : `<div class="xlsSlicerItem vazio">—</div>`}
+      </div>
+    </div>
+  `;
+}
+
+function renderGraficoFaixas(contagens){
+  const max = Math.max(1, ...Object.values(contagens));
+  const ordenado = [...STATUS_EXCEL_ORDEM].sort((a,b) => contagens[b] - contagens[a]);
+  return `
+    <div class="xlsChart">
+      ${ordenado.map(s => `
+        <div class="xlsBarCol ${xlsFiltros.status.has(s) ? 'sel' : ''}" data-slicer="status" data-valor="${s}">
+          <div class="xlsBarN">${contagens[s] || 0}</div>
+          <div class="xlsBarTrack"><div class="xlsBar" style="height:${contagens[s] ? Math.max(4, (contagens[s]/max)*100) : 0}%"></div></div>
+          <div class="xlsBarL">${s}</div>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
 function renderTabelaExcel(rows){
   return `
     <table class="xlsTable">
@@ -1420,6 +1538,26 @@ function wireApp(filtered){
 
   document.getElementById("viewToggle")?.querySelectorAll("[data-view]").forEach(b => {
     b.onclick = () => { viewMode = b.dataset.view; render(); };
+  });
+
+  // Slicers e grafico de barras da Versao Excel: clicar num item/barra
+  // alterna ele dentro do Set (multi-selecao, igual slicer do Excel/Power
+  // BI); clicar no "✕" do cabecalho limpa so aquele slicer.
+  document.querySelectorAll("[data-slicer]").forEach(el => {
+    el.onclick = () => {
+      const campo = el.dataset.slicer;
+      const valor = el.dataset.valor;
+      const sel = xlsFiltros[campo];
+      if(sel.has(valor)) sel.delete(valor); else sel.add(valor);
+      render();
+    };
+  });
+  document.querySelectorAll("[data-slicerclear]").forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      xlsFiltros[btn.dataset.slicerclear].clear();
+      render();
+    };
   });
 
   document.getElementById("tabs")?.querySelectorAll("[data-tab]").forEach(b => {
@@ -1582,13 +1720,32 @@ function wireApp(filtered){
   const tableWrap = document.getElementById("tableWrap");
   const table = tableWrap?.querySelector("table");
   if(scrollTop && scrollTopInner && tableWrap && table){
-    scrollTopInner.style.width = table.scrollWidth + "px";
-    // CORRIGIDO (02/10/2026): a versao anterior usava uma flag booleana
-    // "sincronizando" pra evitar loop infinito entre os dois onscroll, mas
-    // zerava a flag ANTES do evento de scroll do outro elemento chegar a
-    // disparar (scroll e assincrono) -- na pratica nao bloqueava nada e
-    // deixava a rolagem engasgada/pulando ao arrastar. Em vez de mutex, so
-    // atualiza quando o valor realmente mudou -- idempotente, sem loop.
+    // CORRIGIDO (02/10/2026): medir table.scrollWidth na hora so funciona se
+    // o navegador ja tiver terminado de calcular o layout da tabela nova --
+    // logo depois de trocar innerHTML isso nem sempre aconteceu ainda
+    // (principalmente com tabela larga/com campos editaveis, como na Versao
+    // Excel), entao a barra de cima ficava com a largura ERRADA (de um
+    // layout anterior) e travava/pulava ao arrastar, porque ela e a barra
+    // real paravam de bater. Agora mede de novo num requestAnimationFrame
+    // (depois do layout) e tambem observa o tamanho da tabela com
+    // ResizeObserver, pra re-medir sempre que ela mudar de largura (editar
+    // um campo, trocar de aba/filtro etc.) em vez de medir so uma vez.
+    const sincronizarLargura = () => {
+      const larguraCerta = table.scrollWidth + "px";
+      if(scrollTopInner.style.width !== larguraCerta) scrollTopInner.style.width = larguraCerta;
+    };
+    sincronizarLargura();
+    requestAnimationFrame(sincronizarLargura);
+    if(window.ResizeObserver){
+      new ResizeObserver(sincronizarLargura).observe(table);
+    }
+
+    // Versao anterior usava uma flag booleana "sincronizando" pra evitar
+    // loop infinito entre os dois onscroll, mas zerava a flag ANTES do
+    // evento de scroll do outro elemento chegar a disparar (scroll e
+    // assincrono) -- na pratica nao bloqueava nada e deixava a rolagem
+    // engasgada/pulando ao arrastar. Em vez de mutex, so atualiza quando o
+    // valor realmente mudou -- idempotente, sem loop.
     scrollTop.onscroll = () => {
       if(tableWrap.scrollLeft !== scrollTop.scrollLeft) tableWrap.scrollLeft = scrollTop.scrollLeft;
     };
