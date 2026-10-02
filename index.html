@@ -468,7 +468,19 @@ async function boot(){
   const { data } = await sb.auth.getSession();
   session = data.session;
   sb.auth.onAuthStateChange((_event, s) => {
+    // O proprio cliente do Supabase renova o token de login sozinho de
+    // tempos em tempos -- e faz isso toda vez que a pagina volta a ficar
+    // visivel depois de um tempo em segundo plano (troca de aba/janela).
+    // Isso dispara esse evento de novo (TOKEN_REFRESHED), mesmo sendo o
+    // mesmo usuario logado. Antes, qualquer disparo aqui zerava o perfil e
+    // recarregava TUDO do zero (inclusive mostrando a tela de "Carregando…"
+    // por cima da tabela) -- essa era a causa real da pagina parecer
+    // "recarregar" ao mudar de aba/janela, mesmo com a correcao anterior no
+    // visibilitychange. So faz sentido resetar e recarregar quando o
+    // usuario de fato mudou (logou/deslogou/trocou de conta) (02/10/2026).
+    const mesmoUsuario = session && s && session.user.id === s.user.id;
     session = s;
+    if(mesmoUsuario) return;
     meuPerfil = null;
     render();
     if(session) loadAll(); else stopRealtime();
