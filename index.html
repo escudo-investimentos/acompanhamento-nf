@@ -449,6 +449,7 @@ const COLUNAS = [
 let sortCol = null;
 let sortDir = "asc"; // "asc" | "desc"
 let channel = null;
+let ultimaVezEscondida = null; // timestamp (ms) de quando a aba ficou em segundo plano
 
 const app = document.getElementById("app");
 const toastEl = document.getElementById("toast");
@@ -477,17 +478,33 @@ async function boot(){
 }
 boot();
 
-// Corrige o site "travando" e precisando de F5 depois que a aba fica em
-// segundo plano por um tempo (o Chrome suspende/descarta abas inativas e
-// o canal em tempo real do Supabase cai). Quando a aba volta a ficar
-// visivel, revalida a sessao, recarrega os dados e reconecta o realtime
-// se precisar -- sem exigir reload manual.
+// Corrige o site "travando" e precisando de F5 depois que a aba fica MUITO
+// tempo em segundo plano (o Chrome suspende/descarta abas inativas e o canal
+// em tempo real do Supabase cai). So faz sentido revalidar sessao/recarregar
+// dados quando isso de fato aconteceu -- caso contrario (troca rapida de
+// janela/aba, que a gente faz o tempo todo) isso so atrapalha: reconstroi a
+// tabela inteira (perde foco de campo, pisca, etc.) sem necessidade nenhuma,
+// dando a sensacao de que a pagina "recarregou" sozinha. Por isso so
+// revalida de verdade quando o canal realtime realmente caiu OU a aba ficou
+// escondida por mais de 1 minuto (02/10/2026).
+const LIMITE_AUSENCIA_MS = 60 * 1000;
 document.addEventListener("visibilitychange", () => {
+  if(document.visibilityState === "hidden"){
+    ultimaVezEscondida = Date.now();
+    return;
+  }
   if(document.visibilityState !== "visible" || !session) return;
+
+  const canalCaiu = !channel || (channel.state && channel.state !== "joined");
+  const ficouMuitoTempoFora = ultimaVezEscondida !== null
+    && (Date.now() - ultimaVezEscondida) > LIMITE_AUSENCIA_MS;
+
+  if(!canalCaiu && !ficouMuitoTempoFora) return; // troca rapida de janela: nao faz nada
+
   sb.auth.getSession().then(({ data }) => {
     session = data.session;
     if(!session){ render(); return; }
-    if(!channel) startRealtime();
+    if(!channel || canalCaiu) startRealtime();
     loadAll();
   });
 });
@@ -580,6 +597,9 @@ async function loadNotas(){
 }
 
 function startRealtime(){
+  // Se tem um canal antigo (ja caido/com erro), descarta antes de abrir outro
+  // -- senao o "if(channel) return" below ia manter o canal morto pra sempre.
+  if(channel && channel.state !== "joined"){ sb.removeChannel(channel); channel = null; }
   if(channel) return;
   channel = sb.channel("notas-live")
     .on("postgres_changes", { event: "*", schema: "public", table: "notas_fiscais" }, () => {
