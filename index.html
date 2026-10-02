@@ -752,6 +752,16 @@ function renderApp(){
   const counts = getTabCounts();
   const stats = getStats();
 
+  // Preserva a posicao de rolagem da tabela entre re-renders (02/10/2026):
+  // toda atualizacao em tempo real (realtime) ou refresh ao voltar de outra
+  // aba/janela (visibilitychange) chama render(), que reconstroi o HTML
+  // inteiro -- sem isso, a tabela "pulava" de volta pro topo/esquerda toda
+  // vez, dando a impressao de que a pagina tinha recarregado sozinha.
+  const tableWrapAntigo = document.getElementById("tableWrap");
+  const scrollAnterior = tableWrapAntigo
+    ? { left: tableWrapAntigo.scrollLeft, top: tableWrapAntigo.scrollTop }
+    : null;
+
   app.innerHTML = `
     <div class="topbar">
       <div class="brand">
@@ -776,8 +786,8 @@ function renderApp(){
         <div class="stat semid clickable ${activeFaixa==='SEM_IDENTIFICACAO'?'stat-active':''}" data-faixa="SEM_IDENTIFICACAO" title="Ver essas notas"><div class="n mono">${stats.semid}</div><div class="l">Sem identificação</div></div>
         <div class="stat vencido clickable ${activeFaixa==='SOLICITAR_DESCONHECIMENTO'?'stat-active':''}" data-faixa="SOLICITAR_DESCONHECIMENTO" title="Ver essas notas"><div class="n mono">${stats.solicitarDesc}</div><div class="l">Solicitar desconhecimento (+60d)</div></div>
         <div class="stat vencido clickable ${activeFaixa==='VENC_ABAIXO_12'?'stat-active':''}" data-faixa="VENC_ABAIXO_12" title="Ver essas notas"><div class="n mono">${stats.vencAbaixo12}</div><div class="l">Abaixo de 12 dias (p/ vencimento)</div></div>
-        <div class="stat clickable ${activeFaixa==='VENC_13_A_20'?'stat-active':''}" data-faixa="VENC_13_A_20" title="Ver essas notas"><div class="n mono">${stats.venc13a20}</div><div class="l">13 a 20 dias (p/ vencimento)</div></div>
-        <div class="stat acima clickable ${activeFaixa==='VENC_ACIMA_20'?'stat-active':''}" data-faixa="VENC_ACIMA_20" title="Ver essas notas"><div class="n mono">${stats.vencAcima20}</div><div class="l">Acima de 20 dias (p/ vencimento)</div></div>
+        <div class="stat clickable ${activeFaixa==='VENC_12_A_15'?'stat-active':''}" data-faixa="VENC_12_A_15" title="Ver essas notas"><div class="n mono">${stats.venc12a15}</div><div class="l">12 a 15 dias (p/ vencimento)</div></div>
+        <div class="stat acima clickable ${activeFaixa==='VENC_ACIMA_15'?'stat-active':''}" data-faixa="VENC_ACIMA_15" title="Ver essas notas"><div class="n mono">${stats.vencAcima15}</div><div class="l">Acima de 15 dias (p/ vencimento)</div></div>
         <div class="stat"><div class="n mono">${fmtMoeda(stats.valor)}</div><div class="l">Valor total (aba atual)</div></div>
       </div>
 
@@ -801,8 +811,8 @@ function renderApp(){
           <option value="SEM_IDENTIFICACAO" ${activeFaixa==='SEM_IDENTIFICACAO'?'selected':''}>Sem identificação</option>
           <option value="SOLICITAR_DESCONHECIMENTO" ${activeFaixa==='SOLICITAR_DESCONHECIMENTO'?'selected':''}>Solicitar desconhecimento (+60d)</option>
           <option value="VENC_ABAIXO_12" ${activeFaixa==='VENC_ABAIXO_12'?'selected':''}>Abaixo de 12 dias (p/ vencimento)</option>
-          <option value="VENC_13_A_20" ${activeFaixa==='VENC_13_A_20'?'selected':''}>13 a 20 dias (p/ vencimento)</option>
-          <option value="VENC_ACIMA_20" ${activeFaixa==='VENC_ACIMA_20'?'selected':''}>Acima de 20 dias (p/ vencimento)</option>
+          <option value="VENC_12_A_15" ${activeFaixa==='VENC_12_A_15'?'selected':''}>12 a 15 dias (p/ vencimento)</option>
+          <option value="VENC_ACIMA_15" ${activeFaixa==='VENC_ACIMA_15'?'selected':''}>Acima de 15 dias (p/ vencimento)</option>
         </select>
         <div class="dateRange">
           <label>De <input type="date" id="dataDe" value="${dataDe}" /></label>
@@ -841,6 +851,16 @@ function renderApp(){
   `;
 
   wireApp(filtered);
+
+  if(scrollAnterior){
+    const tableWrapNovo = document.getElementById("tableWrap");
+    if(tableWrapNovo){
+      tableWrapNovo.scrollLeft = scrollAnterior.left;
+      tableWrapNovo.scrollTop = scrollAnterior.top;
+    }
+    const scrollTopNovo = document.getElementById("tableScrollTop");
+    if(scrollTopNovo) scrollTopNovo.scrollLeft = scrollAnterior.left;
+  }
 }
 
 function renderAprovacoes(){
@@ -958,19 +978,21 @@ function getStats(){
   // So conta quem tem vencimento preenchido (vindo do XML da propria NFe --
   // ver buscar_vencimentos_e_filtros no sync.py); quem nao tem, fica de fora
   // dessas 3 contagens (nao entra em nenhum balde).
-  let vencAbaixo12=0, venc13a20=0, vencAcima20=0;
+  // Faixas ajustadas em 02/10/2026: Abaixo de 12 / 12 a 15 / Acima de 15
+  // (antes era Abaixo de 12 / 13 a 20 / Acima de 20).
+  let vencAbaixo12=0, venc12a15=0, vencAcima15=0;
   semTitulo.forEach(n => {
     const dv = diasAteVencimento(n);
     if(dv === null) return;
-    if(dv <= 12) vencAbaixo12++;
-    else if(dv <= 20) venc13a20++;
-    else vencAcima20++;
+    if(dv < 12) vencAbaixo12++;
+    else if(dv <= 15) venc12a15++;
+    else vencAcima15++;
   });
 
   let valor=0;
   getFiltered().forEach(n => valor += Number(n.valor_total||0));
   return { total: semTitulo.length, semid, solicitarDesc, abaixo15, entre1520, acima20,
-    vencAbaixo12, venc13a20, vencAcima20, valor };
+    vencAbaixo12, venc12a15, vencAcima15, valor };
 }
 
 function passaPeriodo(n){
@@ -993,14 +1015,15 @@ function getFiltered({ ignorarColuna } = {}){
       if(activeFaixa === "MAIS_DE_15_EMISSAO"){
         const d = diasDesde(n.data_emissao);
         if(d === null || d <= 15) return false;
-      } else if(activeFaixa === "VENC_ABAIXO_12" || activeFaixa === "VENC_13_A_20" || activeFaixa === "VENC_ACIMA_20"){
+      } else if(activeFaixa === "VENC_ABAIXO_12" || activeFaixa === "VENC_12_A_15" || activeFaixa === "VENC_ACIMA_15"){
         // faixas "p/ vencimento" (clique nos cards de baixo) -- usam
         // diasAteVencimento em vez de faixaDe (que e por dias de emissao).
+        // Abaixo de 12 / 12 a 15 / Acima de 15 (ajustado em 02/10/2026).
         const dv = diasAteVencimento(n);
         if(dv === null) return false;
-        if(activeFaixa === "VENC_ABAIXO_12" && dv > 12) return false;
-        if(activeFaixa === "VENC_13_A_20" && (dv <= 12 || dv > 20)) return false;
-        if(activeFaixa === "VENC_ACIMA_20" && dv <= 20) return false;
+        if(activeFaixa === "VENC_ABAIXO_12" && dv >= 12) return false;
+        if(activeFaixa === "VENC_12_A_15" && (dv < 12 || dv > 15)) return false;
+        if(activeFaixa === "VENC_ACIMA_15" && dv <= 15) return false;
       } else if(faixaDe(n) !== activeFaixa){
         return false;
       }
@@ -1324,18 +1347,17 @@ function wireApp(filtered){
   const table = tableWrap?.querySelector("table");
   if(scrollTop && scrollTopInner && tableWrap && table){
     scrollTopInner.style.width = table.scrollWidth + "px";
-    let sincronizando = false;
+    // CORRIGIDO (02/10/2026): a versao anterior usava uma flag booleana
+    // "sincronizando" pra evitar loop infinito entre os dois onscroll, mas
+    // zerava a flag ANTES do evento de scroll do outro elemento chegar a
+    // disparar (scroll e assincrono) -- na pratica nao bloqueava nada e
+    // deixava a rolagem engasgada/pulando ao arrastar. Em vez de mutex, so
+    // atualiza quando o valor realmente mudou -- idempotente, sem loop.
     scrollTop.onscroll = () => {
-      if(sincronizando) return;
-      sincronizando = true;
-      tableWrap.scrollLeft = scrollTop.scrollLeft;
-      sincronizando = false;
+      if(tableWrap.scrollLeft !== scrollTop.scrollLeft) tableWrap.scrollLeft = scrollTop.scrollLeft;
     };
     tableWrap.onscroll = () => {
-      if(sincronizando) return;
-      sincronizando = true;
-      scrollTop.scrollLeft = tableWrap.scrollLeft;
-      sincronizando = false;
+      if(scrollTop.scrollLeft !== tableWrap.scrollLeft) scrollTop.scrollLeft = tableWrap.scrollLeft;
     };
   }
 }
