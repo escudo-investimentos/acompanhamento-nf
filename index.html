@@ -290,10 +290,6 @@
   .statuspill.FEITO_DESCONHECIMENTO{background:var(--good-soft); color:var(--good)}
   .statuspill.NOTA_DESCONHECIDA{background:var(--warn-soft); color:var(--warn)}
   .checkbox{width:16px;height:16px}
-  .flagCol{text-align:center}
-  .flagBtn{border:none; background:none; cursor:pointer; font-size:15px; line-height:1; padding:2px; opacity:.9}
-  .flagBtn:hover{opacity:1; transform:scale(1.15)}
-  .flagBtn.off{opacity:.45}
   .empty{padding:50px 20px; text-align:center; color:var(--text-dim)}
   .empty b{display:block; color:var(--text); font-size:15px; margin-bottom:4px}
   .foot{display:flex; justify-content:space-between; align-items:center; padding:10px 4px; color:var(--text-dim); font-size:12px}
@@ -387,6 +383,9 @@
   .xlsSlicerItem span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
   .xlsSlicerItem:hover{background:var(--surface-2)}
   .xlsSlicerItem.sel{background:#FCE9D2; font-weight:700}
+  /* .off = item DESMARCADO no slicer (excluido do acompanhamento ate marcar
+     de novo) -- 14/10/2026: por padrao tudo vem marcado (sem .off). */
+  .xlsSlicerItem.off{opacity:.45; text-decoration:line-through}
   .xlsSlicerItem.vazio{color:var(--text-dim); cursor:default; text-align:center; justify-content:center; border-bottom:none}
   .xlsSlicerItem.vazio:hover{background:transparent}
 
@@ -403,6 +402,8 @@
     font-weight:800; font-size:13px; white-space:nowrap;
   }
   .xlsBarCol.sel .xlsBar{background:#C45A10}
+  .xlsBarCol.off .xlsBar{opacity:.35}
+  .xlsBarCol.off .xlsBarL{opacity:.5; text-decoration:line-through}
   .xlsBarL{font-size:10px; font-weight:700; color:var(--text-dim); text-align:center; margin-top:6px; line-height:1.25}
   .xlsBarCol:hover .xlsBarL{color:var(--text)}
 </style>
@@ -456,21 +457,15 @@ let viewMode = "dashboard";
 // Filtros de segmentação (estilo "slicer" do Excel/Power BI) exclusivos da
 // Versão Excel -- pedido em 02/10/2026, igual aos quadradinhos
 // "Controle[Possível Comprador]"/"Controle[Fornecedor]"/"Empresa_bd[...]"/
-// "STATUS" da planilha. Cada Set guarda os valores SELECIONADOS (vazio =
-// "todos", igual um slicer sem nada clicado).
+// "STATUS" da planilha. Cada Set guarda os valores DESMARCADOS/EXCLUIDOS
+// (vazio = "tudo marcado, todo mundo aparece") -- ajustado em 14/10/2026 a
+// pedido: por padrao toda caixinha vem MARCADA (como ja era o caso do
+// slicer Empresa) e desmarcar um valor (ex: desmarcar uma empresa) e' o
+// que tira as notas daquele valor do acompanhamento, ate marcar de novo.
+// Ver aplicarXlsFiltros() mais abaixo.
 let xlsFiltros = { comprador: new Set(), fornecedor: new Set(), empresa: new Set(), status: new Set() };
 let searchTerm = "";
 let selected = new Set();
-// "Flegar/desflegar" (pedido em 14/10/2026): toda nota comeca "flegada"
-// (flegado=true ou coluna ainda null/undefined antes da migracao -- ver
-// notaVisivel()) e aparece normal nas duas views. Desflegar uma nota tira
-// ela da lista principal (nao aparece mais em nenhuma aba/filtro) ate ser
-// flegada de novo -- serve pra "esconder" notas que nao tem mais o que
-// fazer ali sem apagar nem mudar status. mostrarOcultos liga uma lupa que
-// inverte isso: mostra SO as desflegadas, pra revisar e reflegar quem
-// precisar voltar a aparecer.
-let mostrarOcultos = false;
-function notaVisivel(n){ return n.flegado !== false; }
   // Default (02/10/2026): abre já no mesmo recorte que o Michel usa pra
   // comparar com o painel dele (período = ano corrente, Manifestação =
   // CIENCIA/CONFIRMACAO) -- ver comentario em getStatsBase(). Continua 100%
@@ -930,7 +925,6 @@ function renderApp(){
   STATUS_EXCEL_ORDEM.forEach(s => contagensStatus[s] = 0);
   baseParaGrafico.forEach(n => { contagensStatus[statusExcel(n)]++; });
   const filtradosExcel = aplicarXlsFiltros(filtered, null);
-  const notasOcultasCount = notas.filter(n => !notaVisivel(n)).length;
 
   // Preserva a posicao de rolagem da tabela entre re-renders (02/10/2026):
   // toda atualizacao em tempo real (realtime) ou refresh ao voltar de outra
@@ -957,9 +951,6 @@ function renderApp(){
       </div>
       <div class="who">
         <span>${session.user.email}</span>
-        <button class="btn small ${mostrarOcultos ? 'primary' : 'ghost'}" id="btnOcultos" title="${mostrarOcultos ? 'Voltar pra lista normal' : 'Ver notas ocultadas (desflegadas) pra reflegar quem precisar voltar'}">
-          ${mostrarOcultos ? "◀ Voltar" : `🏳️ Ocultadas (${notasOcultasCount})`}
-        </button>
         <button class="btn small ghost" id="btnRefresh" title="Atualizar">↻ Atualizar</button>
         <button class="btn small" id="btnLogout">Sair</button>
       </div>
@@ -1019,8 +1010,6 @@ function renderApp(){
           <button class="btn small" data-bulk="NOTA_DESCONHECIDA">Marcar nota desconhecida</button>
           <button class="btn small" data-bulk="FEITO_DESCONHECIMENTO">Marcar feito desconhecimento</button>
           <button class="btn small danger" data-bulk="LIXO">Mover p/ lixo</button>
-          <button class="btn small ghost" data-bulkflag="0" title="Some da lista até ser flegada de novo">🏳️ Ocultar (desflegar)</button>
-          <button class="btn small ghost" data-bulkflag="1" title="Volta a aparecer na lista">🚩 Mostrar (flegar)</button>
           <div class="spacer"></div>
           <button class="btn small primary" id="btnCobranca">✉ Disparar cobrança</button>
         </div>
@@ -1091,8 +1080,6 @@ function renderApp(){
         <button class="btn small" data-bulk="NOTA_DESCONHECIDA">Marcar nota desconhecida</button>
         <button class="btn small" data-bulk="FEITO_DESCONHECIMENTO">Marcar feito desconhecimento</button>
         <button class="btn small danger" data-bulk="LIXO">Mover p/ lixo</button>
-        <button class="btn small ghost" data-bulkflag="0" title="Some da lista até ser flegada de novo">🏳️ Ocultar (desflegar)</button>
-        <button class="btn small ghost" data-bulkflag="1" title="Volta a aparecer na lista">🚩 Mostrar (flegar)</button>
         <div class="spacer"></div>
         <button class="btn small primary" id="btnCobranca">✉ Disparar cobrança</button>
       </div>
@@ -1181,7 +1168,6 @@ function getTabCounts(){
     // garantia, bonificacao, nota cancelada/nao-autorizada -- ver
     // buscar_vencimentos_e_filtros no sync.py).
     if(n.pago || n.tem_titulo || n.fora_escopo) return;
-    if(!notaVisivel(n)) return; // desflegada -- some das contagens tambem
     const s = n.status_manual || "EXPORT";
     c[s] = (c[s]||0)+1;
   });
@@ -1201,7 +1187,6 @@ function getTabCounts(){
 function getStatsBase(){
   return notas.filter(n => {
     if((n.status_manual||"EXPORT") !== "EXPORT" || n.pago || n.tem_titulo || n.fora_escopo) return false;
-    if(!notaVisivel(n)) return false; // desflegada -- some dos indicadores tambem
     if(!passaPeriodo(n)) return false;
     if(searchTerm){
       const t = searchTerm.toLowerCase();
@@ -1268,37 +1253,25 @@ function passaPeriodo(n){
 // (as opcoes se estreitam pelos OUTROS filtros ativos, ao estilo Excel).
 function getFiltered({ ignorarColuna } = {}){
   return notas.filter(n => {
-    // Flegar/desflegar (14/10/2026): o botao "Ocultadas" no topo liga
-    // mostrarOcultos e troca a lista inteira pra mostrar SO as notas
-    // desflegadas (de qualquer aba/status/titulo/pagamento), pra dar pra
-    // revisar e reflegar quem precisar voltar -- por isso pula os filtros
-    // de aba/status/urgencia abaixo nesse modo (nao fariam sentido numa
-    // tela de revisao); continua respeitando busca/periodo/filtros de
-    // coluna pra conseguir estreitar mesmo assim.
-    if(mostrarOcultos){
-      if(notaVisivel(n)) return false;
-    } else {
-      if(!notaVisivel(n)) return false;
-      // Acompanhamento principal so mostra notas SEM titulo (decisao de
-      // 30/09/2026) -- notas com titulo/pagas/fora de escopo saem daqui de vez.
-      if(n.pago || n.tem_titulo || n.fora_escopo) return false;
-      if((n.status_manual || "EXPORT") !== activeTab) return false;
-      if(activeFaixa !== "TODAS"){
-        if(activeFaixa === "MAIS_DE_15_EMISSAO"){
-          const d = diasDesde(n.data_emissao);
-          if(d === null || d <= 15) return false;
-        } else if(activeFaixa === "VENC_ABAIXO_12" || activeFaixa === "VENC_12_A_15" || activeFaixa === "VENC_ACIMA_15"){
-          // faixas "p/ vencimento" (clique nos cards de baixo) -- usam
-          // diasAteVencimento em vez de faixaDe (que e por dias de emissao).
-          // Abaixo de 12 / 12 a 15 / Acima de 15 (ajustado em 02/10/2026).
-          const dv = diasAteVencimento(n);
-          if(dv === null) return false;
-          if(activeFaixa === "VENC_ABAIXO_12" && dv >= 12) return false;
-          if(activeFaixa === "VENC_12_A_15" && (dv < 12 || dv > 15)) return false;
-          if(activeFaixa === "VENC_ACIMA_15" && dv <= 15) return false;
-        } else if(faixaDe(n) !== activeFaixa){
-          return false;
-        }
+    // Acompanhamento principal so mostra notas SEM titulo (decisao de
+    // 30/09/2026) -- notas com titulo/pagas/fora de escopo saem daqui de vez.
+    if(n.pago || n.tem_titulo || n.fora_escopo) return false;
+    if((n.status_manual || "EXPORT") !== activeTab) return false;
+    if(activeFaixa !== "TODAS"){
+      if(activeFaixa === "MAIS_DE_15_EMISSAO"){
+        const d = diasDesde(n.data_emissao);
+        if(d === null || d <= 15) return false;
+      } else if(activeFaixa === "VENC_ABAIXO_12" || activeFaixa === "VENC_12_A_15" || activeFaixa === "VENC_ACIMA_15"){
+        // faixas "p/ vencimento" (clique nos cards de baixo) -- usam
+        // diasAteVencimento em vez de faixaDe (que e por dias de emissao).
+        // Abaixo de 12 / 12 a 15 / Acima de 15 (ajustado em 02/10/2026).
+        const dv = diasAteVencimento(n);
+        if(dv === null) return false;
+        if(activeFaixa === "VENC_ABAIXO_12" && dv >= 12) return false;
+        if(activeFaixa === "VENC_12_A_15" && (dv < 12 || dv > 15)) return false;
+        if(activeFaixa === "VENC_ACIMA_15" && dv <= 15) return false;
+      } else if(faixaDe(n) !== activeFaixa){
+        return false;
       }
     }
     if(!passaPeriodo(n)) return false;
@@ -1416,7 +1389,6 @@ function linhaExcel(n, indice){
     <tr class="${isSel?'selected':''}" data-id="${n.id}">
       <td class="xlsRowNum">${indice + 1}</td>
       <td><input type="checkbox" class="checkbox rowcheck" data-id="${n.id}" ${isSel?'checked':''} /></td>
-      <td class="flagCol"><input type="checkbox" class="checkbox flagcheck" data-flegar="${n.id}" ${notaVisivel(n)?'checked':''} title="Marcado = aparece na lista. Desmarque pra tirar essa nota da lista (fica escondida até marcar de novo)." /></td>
       <td>
         <select class="rowselect" data-field="possivel_comprador" data-id="${n.id}">
           <option value="">SEM SUGESTÃO</option>
@@ -1480,12 +1452,21 @@ function chaveEmpresa(n){ return normalizarEmpresa(valorEmpresa(n)); }
 // cada slicer/grafico mostra suas opcoes/contagens calculadas com os OUTROS
 // filtros ja aplicados, mas sem sumir a si mesmo quando voce seleciona algo
 // nele (igual o comportamento padrao de slicer no Excel/Power BI).
+// IMPORTANTE (14/10/2026, ajustado a pedido): cada Set de xlsFiltros guarda
+// os valores DESMARCADOS (excluidos) -- NAO os selecionados. Por isso toda
+// caixinha comeca MARCADA (todo mundo aparece por padrao, igual o filtro de
+// coluna do Dashboard), e desmarcar um item (ex: desmarcar "EVORA" no
+// slicer Empresa) e' o que tira as notas daquele valor do acompanhamento,
+// ate marcar de novo. Antes era o contrario (Set guardava os SELECIONADOS,
+// entao tudo comecava desmarcado) -- o pedido foi exatamente trocar pra
+// esse comportamento "tudo marcado = tudo aparece, desmarca o que nao
+// quiser ver", igual ja era o caso do slicer Empresa.
 function aplicarXlsFiltros(lista, exceto){
   return lista.filter(n => {
-    if(exceto!=="comprador" && xlsFiltros.comprador.size && !xlsFiltros.comprador.has(valorComprador(n))) return false;
-    if(exceto!=="fornecedor" && xlsFiltros.fornecedor.size && !xlsFiltros.fornecedor.has(valorFornecedor(n))) return false;
-    if(exceto!=="empresa" && xlsFiltros.empresa.size && !xlsFiltros.empresa.has(chaveEmpresa(n))) return false;
-    if(exceto!=="status" && xlsFiltros.status.size && !xlsFiltros.status.has(statusExcel(n))) return false;
+    if(exceto!=="comprador" && xlsFiltros.comprador.has(valorComprador(n))) return false;
+    if(exceto!=="fornecedor" && xlsFiltros.fornecedor.has(valorFornecedor(n))) return false;
+    if(exceto!=="empresa" && xlsFiltros.empresa.has(chaveEmpresa(n))) return false;
+    if(exceto!=="status" && xlsFiltros.status.has(statusExcel(n))) return false;
     return true;
   });
 }
@@ -1516,7 +1497,7 @@ function opcoesEmpresaAgrupadas(lista){
 }
 
 function renderSlicer(titulo, campo, opcoes){
-  const sel = xlsFiltros[campo];
+  const excluidos = xlsFiltros[campo];
   // Cada opcao pode ser uma string simples (comprador/fornecedor/status) ou
   // {chave,label} (empresa, ja agrupada -- ver opcoesEmpresaAgrupadas).
   const itens = opcoes.map(o => typeof o === "string" ? { chave: o, label: o } : o);
@@ -1524,12 +1505,12 @@ function renderSlicer(titulo, campo, opcoes){
     <div class="xlsSlicer">
       <div class="xlsSlicerHead">
         <span>${titulo}</span>
-        ${sel.size ? `<button type="button" class="xlsSlicerClear" data-slicerclear="${campo}" title="Limpar">✕</button>` : ""}
+        ${excluidos.size ? `<button type="button" class="xlsSlicerClear" data-slicerclear="${campo}" title="Marcar tudo de novo">✕ ${excluidos.size}</button>` : ""}
       </div>
       <div class="xlsSlicerBody">
         ${itens.length ? itens.map(({chave, label}) => `
-          <label class="xlsSlicerItem ${sel.has(chave) ? 'sel' : ''}">
-            <input type="checkbox" data-slicer="${campo}" data-valor="${chave.replace(/"/g,'&quot;')}" ${sel.has(chave) ? 'checked' : ''} />
+          <label class="xlsSlicerItem ${excluidos.has(chave) ? 'off' : ''}">
+            <input type="checkbox" data-slicer="${campo}" data-valor="${chave.replace(/"/g,'&quot;')}" ${excluidos.has(chave) ? '' : 'checked'} />
             <span>${label}</span>
           </label>
         `).join("") : `<div class="xlsSlicerItem vazio">—</div>`}
@@ -1544,7 +1525,7 @@ function renderGraficoFaixas(contagens){
   return `
     <div class="xlsChart">
       ${ordenado.map(s => `
-        <div class="xlsBarCol ${xlsFiltros.status.has(s) ? 'sel' : ''}" data-slicer="status" data-valor="${s}">
+        <div class="xlsBarCol ${xlsFiltros.status.has(s) ? 'off' : ''}" data-slicer="status" data-valor="${s}">
           <div class="xlsBarTrack">
             <div class="xlsBar" style="height:${contagens[s] ? Math.max(4, (contagens[s]/max)*100) : 0}%">
               <span class="xlsBarN">${contagens[s] || 0}</span>
@@ -1564,13 +1545,12 @@ function renderTabelaExcel(rows){
         <tr>
           <th style="width:36px"></th>
           <th style="width:34px"><input type="checkbox" class="checkbox" id="checkAll" /></th>
-          <th style="width:30px" title="Flegar/desflegar"></th>
           ${COLUNAS_EXCEL.map(c => `<th style="width:${c.width}">${c.label}</th>`).join("")}
         </tr>
       </thead>
       <tbody>
         ${rows.length ? rows.map(linhaExcel).join("") : `
-          <tr><td colspan="${COLUNAS_EXCEL.length + 3}">
+          <tr><td colspan="${COLUNAS_EXCEL.length + 2}">
             <div class="empty">Nenhuma nota encontrada com os filtros atuais.</div>
           </td></tr>`}
       </tbody>
@@ -1584,7 +1564,6 @@ function renderTable(rows){
       <thead>
         <tr>
           <th style="width:34px"><input type="checkbox" class="checkbox" id="checkAll" /></th>
-          <th style="width:30px" title="Flegar/desflegar"></th>
           ${COLUNAS.map(c => `
             <th ${c.width ? `style="width:${c.width}"` : ""}>
               <div class="th-inner">
@@ -1600,7 +1579,7 @@ function renderTable(rows){
       </thead>
       <tbody>
         ${rows.length ? rows.map(rowHtml).join("") : `
-          <tr><td colspan="${COLUNAS.length + 2}">
+          <tr><td colspan="${COLUNAS.length + 1}">
             <div class="empty">
               <b>Nada por aqui</b>
               Nenhuma nota encontrada com os filtros atuais. Use o botão "▾" de alguma coluna pra revisar o filtro, ou "Filtros de coluna" acima da tabela pra limpar tudo de uma vez.
@@ -1651,7 +1630,6 @@ function rowHtml(n){
   return `
     <tr class="${isSel?'selected':''}" data-id="${n.id}">
       <td><input type="checkbox" class="checkbox rowcheck" data-id="${n.id}" ${isSel?'checked':''} /></td>
-      <td class="flagCol"><input type="checkbox" class="checkbox flagcheck" data-flegar="${n.id}" ${notaVisivel(n)?'checked':''} title="Marcado = aparece na lista. Desmarque pra tirar essa nota da lista (fica escondida até marcar de novo)." /></td>
       <td class="doc mono">${n.numero_nf ?? "—"}</td>
       <td>
         <div class="fornecedor">${n.fornecedor || "—"}
@@ -1714,8 +1692,10 @@ function wireApp(filtered){
     cb.onchange = () => {
       const campo = cb.dataset.slicer;
       const valor = cb.dataset.valor;
-      const sel = xlsFiltros[campo];
-      if(cb.checked) sel.add(valor); else sel.delete(valor);
+      const excluidos = xlsFiltros[campo];
+      // marcado = aparece (tira da lista de excluidos); desmarcado = some
+      // (entra na lista de excluidos) -- ver comentario em aplicarXlsFiltros.
+      if(cb.checked) excluidos.delete(valor); else excluidos.add(valor);
       render();
     };
   });
@@ -1723,15 +1703,15 @@ function wireApp(filtered){
     el.onclick = () => {
       const campo = el.dataset.slicer;
       const valor = el.dataset.valor;
-      const sel = xlsFiltros[campo];
-      if(sel.has(valor)) sel.delete(valor); else sel.add(valor);
+      const excluidos = xlsFiltros[campo];
+      if(excluidos.has(valor)) excluidos.delete(valor); else excluidos.add(valor);
       render();
     };
   });
   document.querySelectorAll("[data-slicerclear]").forEach(btn => {
     btn.onclick = (e) => {
       e.stopPropagation();
-      xlsFiltros[btn.dataset.slicerclear].clear();
+      xlsFiltros[btn.dataset.slicerclear].clear(); // volta a marcar tudo
       render();
     };
   });
@@ -1886,21 +1866,6 @@ function wireApp(filtered){
     b.onclick = () => bulkSetStatus(b.dataset.bulk);
   });
 
-  document.getElementById("bulkbar")?.querySelectorAll("[data-bulkflag]").forEach(b => {
-    b.onclick = () => bulkSetFlegado(b.dataset.bulkflag === "1");
-  });
-
-  document.querySelectorAll("[data-flegar]").forEach(cb => {
-    cb.onclick = (e) => e.stopPropagation();
-    cb.onchange = () => setFlegado(Number(cb.dataset.flegar), cb.checked);
-  });
-
-  document.getElementById("btnOcultos")?.addEventListener("click", () => {
-    mostrarOcultos = !mostrarOcultos;
-    selected.clear();
-    render();
-  });
-
   document.getElementById("btnCobranca")?.addEventListener("click", openCobrancaModal);
 
   // Barra de rolagem horizontal duplicada em cima da tabela, sincronizada
@@ -1980,41 +1945,6 @@ async function bulkSetStatus(status){
   notas.forEach(n => { if(ids.includes(n.id)) n.status_manual = status; });
   selected.clear();
   toast(`${ids.length} nota(s) movida(s)`);
-  render();
-}
-
-// Flegar/desflegar (pedido em 14/10/2026): coluna booleana "flegado" --
-// true/null = aparece normal, false = some da lista principal (nas duas
-// views, em todas as abas) ate ser flegada de novo. O sync.py NAO toca
-// nesse campo (ver nota la), entao uma desflegada manual nao volta sozinha
-// na proxima sincronizacao.
-async function setFlegado(id, novoValor){
-  const nota = notas.find(n => n.id === id);
-  if(!nota) return;
-  nota.flegado = novoValor; // otimista
-  render();
-  const { error } = await sb.from("notas_fiscais")
-    .update({ flegado: novoValor, atualizado_em: new Date().toISOString() })
-    .eq("id", id);
-  if(error){
-    nota.flegado = !novoValor; // desfaz
-    toast("Erro ao salvar: " + error.message);
-    render();
-    return;
-  }
-  toast(novoValor ? "Nota flegada -- volta a aparecer na lista" : "Nota desflegada -- some da lista até ser flegada de novo");
-}
-
-async function bulkSetFlegado(valor){
-  const ids = [...selected];
-  if(!ids.length) return;
-  const { error } = await sb.from("notas_fiscais")
-    .update({ flegado: valor, atualizado_em: new Date().toISOString() })
-    .in("id", ids);
-  if(error){ toast("Erro: " + error.message); return; }
-  notas.forEach(n => { if(ids.includes(n.id)) n.flegado = valor; });
-  selected.clear();
-  toast(`${ids.length} nota(s) ${valor ? "flegada(s) -- voltam a aparecer" : "desflegada(s) -- somem da lista"}`);
   render();
 }
 
