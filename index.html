@@ -1416,7 +1416,7 @@ function linhaExcel(n, indice){
     <tr class="${isSel?'selected':''}" data-id="${n.id}">
       <td class="xlsRowNum">${indice + 1}</td>
       <td><input type="checkbox" class="checkbox rowcheck" data-id="${n.id}" ${isSel?'checked':''} /></td>
-      <td class="flagCol"><button type="button" class="flagBtn ${notaVisivel(n)?'':'off'}" data-flegar="${n.id}" title="${notaVisivel(n) ? 'Clique pra ocultar esta nota da lista (desflegar)' : 'Clique pra mostrar esta nota de novo (flegar)'}">${notaVisivel(n) ? '🚩' : '🏳️'}</button></td>
+      <td class="flagCol"><input type="checkbox" class="checkbox flagcheck" data-flegar="${n.id}" ${notaVisivel(n)?'checked':''} title="Marcado = aparece na lista. Desmarque pra tirar essa nota da lista (fica escondida até marcar de novo)." /></td>
       <td>
         <select class="rowselect" data-field="possivel_comprador" data-id="${n.id}">
           <option value="">SEM SUGESTÃO</option>
@@ -1651,7 +1651,7 @@ function rowHtml(n){
   return `
     <tr class="${isSel?'selected':''}" data-id="${n.id}">
       <td><input type="checkbox" class="checkbox rowcheck" data-id="${n.id}" ${isSel?'checked':''} /></td>
-      <td class="flagCol"><button type="button" class="flagBtn ${notaVisivel(n)?'':'off'}" data-flegar="${n.id}" title="${notaVisivel(n) ? 'Clique pra ocultar esta nota da lista (desflegar)' : 'Clique pra mostrar esta nota de novo (flegar)'}">${notaVisivel(n) ? '🚩' : '🏳️'}</button></td>
+      <td class="flagCol"><input type="checkbox" class="checkbox flagcheck" data-flegar="${n.id}" ${notaVisivel(n)?'checked':''} title="Marcado = aparece na lista. Desmarque pra tirar essa nota da lista (fica escondida até marcar de novo)." /></td>
       <td class="doc mono">${n.numero_nf ?? "—"}</td>
       <td>
         <div class="fornecedor">${n.fornecedor || "—"}
@@ -1890,8 +1890,9 @@ function wireApp(filtered){
     b.onclick = () => bulkSetFlegado(b.dataset.bulkflag === "1");
   });
 
-  document.querySelectorAll("[data-flegar]").forEach(btn => {
-    btn.onclick = (e) => { e.stopPropagation(); toggleFlegado(Number(btn.dataset.flegar)); };
+  document.querySelectorAll("[data-flegar]").forEach(cb => {
+    cb.onclick = (e) => e.stopPropagation();
+    cb.onchange = () => setFlegado(Number(cb.dataset.flegar), cb.checked);
   });
 
   document.getElementById("btnOcultos")?.addEventListener("click", () => {
@@ -1987,10 +1988,9 @@ async function bulkSetStatus(status){
 // views, em todas as abas) ate ser flegada de novo. O sync.py NAO toca
 // nesse campo (ver nota la), entao uma desflegada manual nao volta sozinha
 // na proxima sincronizacao.
-async function toggleFlegado(id){
+async function setFlegado(id, novoValor){
   const nota = notas.find(n => n.id === id);
   if(!nota) return;
-  const novoValor = !notaVisivel(nota);
   nota.flegado = novoValor; // otimista
   render();
   const { error } = await sb.from("notas_fiscais")
