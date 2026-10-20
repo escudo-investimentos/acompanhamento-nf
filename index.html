@@ -919,6 +919,7 @@ function renderApp(){
   const filtered = ordenarLista(getFiltered());
   const counts = getTabCounts();
   const stats = getStats();
+  const countLancadas = notas.filter(n => n.tem_titulo).length;
 
   // Dados dos slicers/grafico da Versao Excel (so usados quando
   // viewMode==="excel", mas calculados aqui porque "filtered" ja esta
@@ -976,6 +977,9 @@ function renderApp(){
               <button class="tab ${activeTab===s?'active':''}" data-tab="${s}">
                 ${STATUS_LABELS[s]} · ${counts[s]||0}
               </button>`).join("")}
+            <button class="tab ${activeTab==='NOTAS_LANCADAS'?'active':''}" data-tab="NOTAS_LANCADAS">
+              📦 Notas lançadas · ${countLancadas}
+            </button>
             ${isAdminUser() ? `
               <button class="tab ${activeTab==='APROVACOES'?'active':''}" data-tab="APROVACOES" style="margin-left:8px">
                 🔐 Aprovações${perfisPendentes.length ? ` · ${perfisPendentes.length}` : ""}
@@ -1048,6 +1052,9 @@ function renderApp(){
             <button class="tab ${activeTab===s?'active':''}" data-tab="${s}">
               ${STATUS_LABELS[s]} · ${counts[s]||0}
             </button>`).join("")}
+          <button class="tab ${activeTab==='NOTAS_LANCADAS'?'active':''}" data-tab="NOTAS_LANCADAS">
+            📦 Notas lançadas · ${countLancadas}
+          </button>
           ${isAdminUser() ? `
             <button class="tab ${activeTab==='APROVACOES'?'active':''}" data-tab="APROVACOES" style="margin-left:8px">
               🔐 Aprovações${perfisPendentes.length ? ` · ${perfisPendentes.length}` : ""}
@@ -1259,25 +1266,34 @@ function passaPeriodo(n){
 // (as opcoes se estreitam pelos OUTROS filtros ativos, ao estilo Excel).
 function getFiltered({ ignorarColuna } = {}){
   return notas.filter(n => {
-    // Acompanhamento principal so mostra notas SEM titulo (decisao de
-    // 30/09/2026) -- notas com titulo/pagas/fora de escopo saem daqui de vez.
-    if(n.pago || n.tem_titulo || n.fora_escopo) return false;
-    if((n.status_manual || "EXPORT") !== activeTab) return false;
-    if(activeFaixa !== "TODAS"){
-      if(activeFaixa === "MAIS_DE_15_EMISSAO"){
-        const d = diasDesde(n.data_emissao);
-        if(d === null || d <= 15) return false;
-      } else if(activeFaixa === "VENC_ABAIXO_12" || activeFaixa === "VENC_12_A_15" || activeFaixa === "VENC_ACIMA_15"){
-        // faixas "p/ vencimento" (clique nos cards de baixo) -- usam
-        // diasAteVencimento em vez de faixaDe (que e por dias de emissao).
-        // Abaixo de 12 / 12 a 15 / Acima de 15 (ajustado em 02/10/2026).
-        const dv = diasAteVencimento(n);
-        if(dv === null) return false;
-        if(activeFaixa === "VENC_ABAIXO_12" && dv >= 12) return false;
-        if(activeFaixa === "VENC_12_A_15" && (dv < 12 || dv > 15)) return false;
-        if(activeFaixa === "VENC_ACIMA_15" && dv <= 15) return false;
-      } else if(faixaDe(n) !== activeFaixa){
-        return false;
+    // "Notas lançadas" (pedido em 14/10/2026): aba separada, fora do fluxo
+    // normal de status_manual -- mostra so quem JA TEM titulo lancado no
+    // Sienge (o oposto do filtro padrao logo abaixo, que tira quem tem
+    // titulo). Lista simples, com as mesmas colunas de sempre; nao usa
+    // status_manual nem a faixa de urgencia (nao fazem sentido aqui).
+    if(activeTab === "NOTAS_LANCADAS"){
+      if(!n.tem_titulo) return false;
+    } else {
+      // Acompanhamento principal so mostra notas SEM titulo (decisao de
+      // 30/09/2026) -- notas com titulo/pagas/fora de escopo saem daqui de vez.
+      if(n.pago || n.tem_titulo || n.fora_escopo) return false;
+      if((n.status_manual || "EXPORT") !== activeTab) return false;
+      if(activeFaixa !== "TODAS"){
+        if(activeFaixa === "MAIS_DE_15_EMISSAO"){
+          const d = diasDesde(n.data_emissao);
+          if(d === null || d <= 15) return false;
+        } else if(activeFaixa === "VENC_ABAIXO_12" || activeFaixa === "VENC_12_A_15" || activeFaixa === "VENC_ACIMA_15"){
+          // faixas "p/ vencimento" (clique nos cards de baixo) -- usam
+          // diasAteVencimento em vez de faixaDe (que e por dias de emissao).
+          // Abaixo de 12 / 12 a 15 / Acima de 15 (ajustado em 02/10/2026).
+          const dv = diasAteVencimento(n);
+          if(dv === null) return false;
+          if(activeFaixa === "VENC_ABAIXO_12" && dv >= 12) return false;
+          if(activeFaixa === "VENC_12_A_15" && (dv < 12 || dv > 15)) return false;
+          if(activeFaixa === "VENC_ACIMA_15" && dv <= 15) return false;
+        } else if(faixaDe(n) !== activeFaixa){
+          return false;
+        }
       }
     }
     if(!passaPeriodo(n)) return false;
