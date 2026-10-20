@@ -292,7 +292,9 @@
   .checkbox{width:16px;height:16px}
   .empty{padding:50px 20px; text-align:center; color:var(--text-dim)}
   .empty b{display:block; color:var(--text); font-size:15px; margin-bottom:4px}
-  .foot{display:flex; justify-content:space-between; align-items:center; padding:10px 4px; color:var(--text-dim); font-size:12px}
+  .foot{display:flex; justify-content:space-between; align-items:center; padding:10px 4px; color:var(--text-dim); font-size:12px; flex-wrap:wrap; gap:8px}
+  .paginacao{display:flex; align-items:center; gap:10px; font-size:12px; color:var(--text-dim)}
+  .paginacao .btn[disabled]{opacity:.4; cursor:default}
   .toast{
     position:fixed; bottom:18px; right:18px; background:var(--text); color:var(--bg); padding:10px 16px; border-radius:9px;
     font-size:13px; font-weight:600; box-shadow:var(--shadow); opacity:0; transform:translateY(8px); transition:.2s; pointer-events:none; z-index:50;
@@ -490,6 +492,46 @@ let selected = new Set();
 let dropdownColunaAberta = null;  // id da coluna com o filtro aberto, ou null
 let dropdownBusca = "";           // texto digitado pra pesquisar na lista do filtro aberto
 let colunaFocoAtual = null;       // qual campo de busca estava com foco antes do ultimo render
+
+// Paginação (14/10/2026, pedido depois que o volume de notas cresceu e o
+// site comecou a ficar lento): renderizar MILHARES de linhas de uma vez
+// via innerHTML a cada tecla digitada/filtro clicado e' o que estava
+// pesando -- o navegador tinha que desenhar a tabela inteira de novo
+// toda hora. Agora so desenha um "pedaco" (LINHAS_POR_PAGINA) por vez; os
+// filtros/contadores/acoes em massa continuam considerando a lista
+// INTEIRA normalmente (so o HTML desenhado na tela que fica menor).
+const LINHAS_POR_PAGINA = 150;
+let paginaAtual = 1;
+let ultimaAssinaturaFiltro = null; // pra saber quando VOLTAR pra pagina 1 (filtro mudou)
+let buscaDebounceTimer = null;       // debounce do campo de busca principal
+let filtroBuscaDebounceTimer = null; // debounce do campo de busca dentro do dropdown de filtro
+
+// Corta "lista" na pagina atual, ajustando paginaAtual se ela ficou "fora
+// do intervalo" (ex: estava na pagina 5 e um filtro novo deixou so 2
+// paginas). Devolve so o pedaco a desenhar + info pra montar os controles.
+function paginar(lista){
+  const totalPaginas = Math.max(1, Math.ceil(lista.length / LINHAS_POR_PAGINA));
+  if(paginaAtual > totalPaginas) paginaAtual = totalPaginas;
+  if(paginaAtual < 1) paginaAtual = 1;
+  const inicio = (paginaAtual - 1) * LINHAS_POR_PAGINA;
+  return {
+    pagina: lista.slice(inicio, inicio + LINHAS_POR_PAGINA),
+    totalPaginas,
+    inicio: lista.length ? inicio + 1 : 0,
+    fim: Math.min(inicio + LINHAS_POR_PAGINA, lista.length),
+  };
+}
+
+function renderPaginacao(info, total){
+  if(total <= LINHAS_POR_PAGINA) return "";
+  return `
+    <div class="paginacao">
+      <button type="button" class="btn small ghost" id="paginaAnterior" ${paginaAtual<=1?'disabled':''}>‹ Anterior</button>
+      <span>Página ${paginaAtual} de ${info.totalPaginas} (${info.inicio}–${info.fim} de ${total})</span>
+      <button type="button" class="btn small ghost" id="paginaProxima" ${paginaAtual>=info.totalPaginas?'disabled':''}>Próxima ›</button>
+    </div>
+  `;
+}
 
 // Definicao das colunas da tabela, pra gerar o filtro estilo Excel e casar
 // com o texto que aparece em cada celula.
@@ -916,6 +958,29 @@ function renderApp(){
     renderAprovacoes();
     return;
   }
+  // Volta pra pagina 1 sempre que algo que muda QUAIS notas aparecem mudou
+  // desde o ultimo render (trocar aba/view, digitar busca, mexer em
+  // filtro/periodo/slicer/ordenacao) -- senao o usuario podia ficar "preso"
+  // numa pagina 4 que nem existe mais depois de filtrar.
+  // Protege o campo de busca contra um realtime update chegando NO MEIO do
+  // debounce (ver wireApp) e "apagando" o que a pessoa acabou de digitar:
+  // se o campo esta com foco, le o valor AO VIVO do proprio DOM em vez de
+  // confiar na variavel searchTerm (que so e atualizada depois do debounce).
+  const searchInputAntigo = document.getElementById("searchInput");
+  const searchValorAoVivo = (searchInputAntigo && document.activeElement === searchInputAntigo)
+    ? searchInputAntigo.value
+    : searchTerm;
+
+  const assinaturaFiltro = JSON.stringify({
+    viewMode, activeTab, activeFaixa, searchTerm, dataDe, dataAte, sortCol, sortDir,
+    colFiltros: Object.fromEntries(Object.entries(columnFilters).map(([k,v]) => [k, [...v]])),
+    xlsFiltros: Object.fromEntries(Object.entries(xlsFiltros).map(([k,v]) => [k, [...v]])),
+  });
+  if(assinaturaFiltro !== ultimaAssinaturaFiltro){
+    paginaAtual = 1;
+    ultimaAssinaturaFiltro = assinaturaFiltro;
+  }
+
   const filtered = ordenarLista(getFiltered());
   const counts = getTabCounts();
   const stats = getStats();
@@ -932,6 +997,16 @@ function renderApp(){
   STATUS_EXCEL_ORDEM.forEach(s => contagensStatus[s] = 0);
   baseParaGrafico.forEach(n => { contagensStatus[statusExcel(n)]++; });
   const filtradosExcel = aplicarXlsFiltros(filtered, null);
+
+  // So a pagina atual de fato vira HTML (ver comentario em paginar() acima)
+  // -- os arrays inteiros (filtered/filtradosExcel) continuam existindo
+  // normalmente pra contadores, slicers e acoes em massa. So pagina a
+  // lista da view que esta REALMENTE sendo desenhada (so um dos dois
+  // blocos do template abaixo e' avaliado por vez) -- paginar() so' deve
+  // ser chamado uma vez por render, senao a segunda chamada clampa
+  // paginaAtual com base na lista ERRADA.
+  const listaAtual = viewMode === "excel" ? filtradosExcel : filtered;
+  const paginaInfo = paginar(listaAtual);
 
   // Preserva a posicao de rolagem da tabela entre re-renders (02/10/2026):
   // toda atualizacao em tempo real (realtime) ou refresh ao voltar de outra
@@ -967,7 +1042,7 @@ function renderApp(){
         <div class="xlsTitleBar">
           <div class="xlsTitle">ACOMPANHAMENTO DE NF-e</div>
           <div class="search">
-            🔎 <input id="searchInput" placeholder="Buscar nº, fornecedor..." value="${searchTerm}" />
+            🔎 <input id="searchInput" placeholder="Buscar nº, fornecedor..." value="${searchValorAoVivo}" />
           </div>
         </div>
 
@@ -1026,11 +1101,12 @@ function renderApp(){
 
         <div class="table-scroll-top" id="tableScrollTop"><div class="table-scroll-top-inner" id="tableScrollTopInner"></div></div>
         <div class="table-wrap" id="tableWrap">
-          ${renderTabelaExcel(filtradosExcel)}
+          ${renderTabelaExcel(paginaInfo.pagina)}
         </div>
         <div class="foot">
-          <span>${filtradosExcel.length} nota(s) exibida(s)</span>
+          <span>${filtradosExcel.length} nota(s) no total</span>
           <span>Mesmos dados da versão Dashboard — editar aqui atualiza lá também</span>
+          ${renderPaginacao(paginaInfo, filtradosExcel.length)}
         </div>
       ` : `
       <div class="stats">
@@ -1083,7 +1159,7 @@ function renderApp(){
           </button>` : ""}
         <div class="spacer"></div>
         <div class="search">
-          🔎 <input id="searchInput" placeholder="Buscar nº, fornecedor..." value="${searchTerm}" />
+          🔎 <input id="searchInput" placeholder="Buscar nº, fornecedor..." value="${searchValorAoVivo}" />
         </div>
       </div>
 
@@ -1099,11 +1175,12 @@ function renderApp(){
 
       <div class="table-scroll-top" id="tableScrollTop"><div class="table-scroll-top-inner" id="tableScrollTopInner"></div></div>
       <div class="table-wrap" id="tableWrap">
-        ${renderTable(filtered)}
+        ${renderTable(paginaInfo.pagina)}
       </div>
       <div class="foot">
-        <span>${filtered.length} nota(s) exibida(s)</span>
+        <span>${filtered.length} nota(s) no total</span>
         <span>Sincronizado automaticamente com o Sienge</span>
+        ${renderPaginacao(paginaInfo, filtered.length)}
       </div>
       `}
     </main>
@@ -1754,8 +1831,18 @@ function wireApp(filtered){
       render();
     };
   });
+  // Busca com debounce (14/10/2026, junto com a paginacao): antes cada
+  // tecla digitada disparava um render() na hora, reconstruindo a tabela
+  // inteira a cada letra -- com milhares de notas isso travava a digitacao.
+  // Agora espera 250ms sem digitar pra so entao filtrar (o campo em si
+  // continua respondendo na hora, e' so o FILTRO que atrasa um pouco).
   const searchInputEl = document.getElementById("searchInput");
-  if(searchInputEl) searchInputEl.oninput = (e) => { searchTerm = e.target.value; colunaFocoAtual = "__search__"; render(); };
+  if(searchInputEl) searchInputEl.oninput = (e) => {
+    const valor = e.target.value;
+    colunaFocoAtual = "__search__";
+    clearTimeout(buscaDebounceTimer);
+    buscaDebounceTimer = setTimeout(() => { searchTerm = valor; render(); }, 250);
+  };
 
   const dataDeEl = document.getElementById("dataDe");
   const dataAteEl = document.getElementById("dataAte");
@@ -1793,11 +1880,23 @@ function wireApp(filtered){
   const filtroBuscaEl = document.getElementById("filtroBusca");
   if(filtroBuscaEl){
     filtroBuscaEl.oninput = () => {
-      dropdownBusca = filtroBuscaEl.value;
+      const valor = filtroBuscaEl.value;
       colunaFocoAtual = "__filtroBusca__";
-      render();
+      clearTimeout(filtroBuscaDebounceTimer);
+      filtroBuscaDebounceTimer = setTimeout(() => { dropdownBusca = valor; render(); }, 200);
     };
   }
+
+  // Botoes de pagina (Anterior/Proxima) -- ver paginar()/renderPaginacao()
+  // mais acima.
+  document.getElementById("paginaAnterior")?.addEventListener("click", () => {
+    paginaAtual = Math.max(1, paginaAtual - 1);
+    render();
+  });
+  document.getElementById("paginaProxima")?.addEventListener("click", () => {
+    paginaAtual = paginaAtual + 1; // paginar() clampa se passar do total
+    render();
+  });
 
   document.querySelectorAll("[data-filtroacao]").forEach(btn => {
     btn.onclick = (e) => {
