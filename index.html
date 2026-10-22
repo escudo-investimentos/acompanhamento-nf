@@ -2076,17 +2076,22 @@ async function saveField(id, field, value){
 async function bulkSetStatus(status){
   const ids = [...selected];
   if(!ids.length) return;
-  // "Voltar p/ acompanhamento" tambem tira a nota de "Notas lançadas" (se
-  // ela tiver sido marcada manualmente como lançada por engano) -- senao o
-  // botao nao teria efeito nenhum nela, ja que tem_titulo manda mais que
-  // status_manual no filtro (ver getFiltered).
-  const patch = { status_manual: status, atualizado_em: new Date().toISOString() };
-  if(status === "EXPORT") patch.tem_titulo = false;
+  // QUALQUER um desses 4 botoes (Voltar p/ acompanhamento / Marcar nota
+  // desconhecida / Marcar feito desconhecimento / Mover p/ lixo) precisa
+  // tambem tirar a nota de "Notas lançadas" quando ela tiver sido marcada
+  // assim por engano -- corrigido em 22/10/2026 depois que o usuario
+  // relatou que "Marcar nota desconhecida" nao tinha efeito nenhum numa
+  // nota que estava em Notas lançadas. O motivo: tem_titulo manda mais que
+  // status_manual no filtro (ver getFiltered) -- so zerar status_manual
+  // nao bastava, a nota continuava escondida de todas as abas normais. Só
+  // nao zera se o destino FOR "Notas lançadas" de novo (não existe botao
+  // pra isso aqui, mas por clareza).
+  const patch = { status_manual: status, atualizado_em: new Date().toISOString(), tem_titulo: false };
   const { error } = await sb.from("notas_fiscais")
     .update(patch)
     .in("id", ids);
   if(error){ toast("Erro: " + error.message); return; }
-  notas.forEach(n => { if(ids.includes(n.id)){ n.status_manual = status; if(status === "EXPORT") n.tem_titulo = false; } });
+  notas.forEach(n => { if(ids.includes(n.id)){ n.status_manual = status; n.tem_titulo = false; } });
   selected.clear();
   toast(`${ids.length} nota(s) movida(s)`);
   render();
