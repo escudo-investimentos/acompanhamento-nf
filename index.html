@@ -1518,6 +1518,7 @@ function linhaExcel(n, indice){
       <td><span class="xlsStatus ${statusCls}">${status}</span></td>
       <td class="num mono">${diasEmissao === null ? "—" : diasEmissao}</td>
       <td>${solicitar ? `<span class="xlsStatus xs-vencido">SOLICITAR DESCONHECIMENTO</span>` : ""}</td>
+      ${mostrarColunaChaveNfe() ? `<td class="mono" title="${n.chave_nfe||''}">${n.chave_nfe || "—"}</td>` : ""}
     </tr>
   `;
 }
@@ -1655,11 +1656,12 @@ function renderTabelaExcel(rows){
           <th style="width:36px"></th>
           <th style="width:34px"><input type="checkbox" class="checkbox" id="checkAll" /></th>
           ${COLUNAS_EXCEL.map(c => `<th style="width:${c.width}">${c.label}</th>`).join("")}
+          ${mostrarColunaChaveNfe() ? '<th style="width:300px">Chave NF-e</th>' : ""}
         </tr>
       </thead>
       <tbody>
         ${rows.length ? rows.map(linhaExcel).join("") : `
-          <tr><td colspan="${COLUNAS_EXCEL.length + 2}">
+          <tr><td colspan="${COLUNAS_EXCEL.length + 2 + (mostrarColunaChaveNfe() ? 1 : 0)}">
             <div class="empty">Nenhuma nota encontrada com os filtros atuais.</div>
           </td></tr>`}
       </tbody>
