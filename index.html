@@ -1105,6 +1105,7 @@ function renderApp(){
           <button class="btn small" data-bulk="NOTA_DESCONHECIDA">Marcar nota desconhecida</button>
           <button class="btn small" data-bulk="FEITO_DESCONHECIMENTO">Marcar feito desconhecimento</button>
           <button class="btn small danger" data-bulk="LIXO">Mover p/ lixo</button>
+          <button class="btn small" id="btnMarcarLancada">📦 Marcar nota lançada</button>
           <div class="spacer"></div>
           <button class="btn small primary" id="btnCobranca">✉ Disparar cobrança</button>
         </div>
@@ -1179,6 +1180,7 @@ function renderApp(){
         <button class="btn small" data-bulk="NOTA_DESCONHECIDA">Marcar nota desconhecida</button>
         <button class="btn small" data-bulk="FEITO_DESCONHECIMENTO">Marcar feito desconhecimento</button>
         <button class="btn small danger" data-bulk="LIXO">Mover p/ lixo</button>
+        <button class="btn small" id="btnMarcarLancada">📦 Marcar nota lançada</button>
         <div class="spacer"></div>
         <button class="btn small primary" id="btnCobranca">✉ Disparar cobrança</button>
       </div>
@@ -2002,6 +2004,7 @@ function wireApp(filtered){
   });
 
   document.getElementById("btnCobranca")?.addEventListener("click", openCobrancaModal);
+  document.getElementById("btnMarcarLancada")?.addEventListener("click", bulkMarcarLancada);
 
   // Barra de rolagem horizontal duplicada em cima da tabela, sincronizada
   // com a rolagem real -- assim nao precisa descer ate embaixo pra rolar
@@ -2073,13 +2076,41 @@ async function saveField(id, field, value){
 async function bulkSetStatus(status){
   const ids = [...selected];
   if(!ids.length) return;
+  // "Voltar p/ acompanhamento" tambem tira a nota de "Notas lançadas" (se
+  // ela tiver sido marcada manualmente como lançada por engano) -- senao o
+  // botao nao teria efeito nenhum nela, ja que tem_titulo manda mais que
+  // status_manual no filtro (ver getFiltered).
+  const patch = { status_manual: status, atualizado_em: new Date().toISOString() };
+  if(status === "EXPORT") patch.tem_titulo = false;
   const { error } = await sb.from("notas_fiscais")
-    .update({ status_manual: status, atualizado_em: new Date().toISOString() })
+    .update(patch)
     .in("id", ids);
   if(error){ toast("Erro: " + error.message); return; }
-  notas.forEach(n => { if(ids.includes(n.id)) n.status_manual = status; });
+  notas.forEach(n => { if(ids.includes(n.id)){ n.status_manual = status; if(status === "EXPORT") n.tem_titulo = false; } });
   selected.clear();
   toast(`${ids.length} nota(s) movida(s)`);
+  render();
+}
+
+// "Marcar nota lançada" (pedido em 22/10/2026): bulk manual pra mandar
+// nota(s) selecionada(s) direto pra aba "Notas lançadas", pro caso de a
+// contabilidade ja ter lançado o título no Sienge mas o sync ainda nao ter
+// cruzado isso automaticamente (marcar_notas_com_titulo, em sync.py).
+// Marca tem_titulo=true direto no Supabase -- como o sync.py so inclui a
+// coluna tem_titulo no payload de upsert quando ELE MESMO encontra o
+// título no Sienge (ver enviar_para_supabase/marcar_notas_com_titulo), um
+// sync futuro que nao encontrar o título de novo simplesmente nao mexe
+// nessa coluna, entao essa marcação manual nao é desfeita sozinha.
+async function bulkMarcarLancada(){
+  const ids = [...selected];
+  if(!ids.length) return;
+  const { error } = await sb.from("notas_fiscais")
+    .update({ tem_titulo: true, atualizado_em: new Date().toISOString() })
+    .in("id", ids);
+  if(error){ toast("Erro: " + error.message); return; }
+  notas.forEach(n => { if(ids.includes(n.id)) n.tem_titulo = true; });
+  selected.clear();
+  toast(`${ids.length} nota(s) marcada(s) como lançada(s)`);
   render();
 }
 
