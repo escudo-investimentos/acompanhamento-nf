@@ -597,6 +597,16 @@ const COLUNAS = [
 // o acompanhamento principal foca só em notas SEM título (ver decisão no
 // plano-prioridades-pos-analise-michel.md). Versão completa com essas
 // colunas continua em index_completo_com_titulos.html.
+// Coluna "Chave NF-e" (pedido em 22/10/2026): a contabilidade disse que
+// consegue dar o desconhecimento mais rapido se tiver a chave de acesso da
+// NFe em maos -- so faz sentido nas abas onde isso de fato acontece (Nota
+// desconhecida/Feito desconhecimento), entao fica escondida nas outras
+// pra nao poluir a tabela. O dado (chave_nfe) ja vinha sendo sincronizado
+// desde a "Versao Excel", so nao precisava de nenhuma mudanca no sync.py.
+function mostrarColunaChaveNfe(){
+  return activeTab === "NOTA_DESCONHECIDA" || activeTab === "FEITO_DESCONHECIMENTO";
+}
+
 // Ordenacao ativa da tabela (estilo Excel: clica no nome da coluna).
 let sortCol = null;
 let sortDir = "asc"; // "asc" | "desc"
@@ -1674,11 +1684,12 @@ function renderTable(rows){
               ${dropdownColunaAberta === c.id ? renderDropdownFiltro(c) : ""}
             </th>
           `).join("")}
+          ${mostrarColunaChaveNfe() ? '<th style="width:300px">Chave NF-e</th>' : ""}
         </tr>
       </thead>
       <tbody>
         ${rows.length ? rows.map(rowHtml).join("") : `
-          <tr><td colspan="${COLUNAS.length + 1}">
+          <tr><td colspan="${COLUNAS.length + 1 + (mostrarColunaChaveNfe() ? 1 : 0)}">
             <div class="empty">
               <b>Nada por aqui</b>
               Nenhuma nota encontrada com os filtros atuais. Use o botão "▾" de alguma coluna pra revisar o filtro, ou "Filtros de coluna" acima da tabela pra limpar tudo de uma vez.
@@ -1762,6 +1773,7 @@ function rowHtml(n){
           ${STATUS_ORDER.map(s => `<option value="${s}" ${(n.status_manual||'EXPORT')===s?'selected':''}>${STATUS_LABELS[s]}</option>`).join("")}
         </select>
       </td>
+      ${mostrarColunaChaveNfe() ? `<td class="mono" title="${n.chave_nfe||''}">${n.chave_nfe || "—"}</td>` : ""}
     </tr>
   `;
 }
