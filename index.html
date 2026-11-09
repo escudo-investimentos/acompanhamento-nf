@@ -1014,7 +1014,12 @@ function renderApp(){
   const contagensStatus = {};
   STATUS_EXCEL_ORDEM.forEach(s => contagensStatus[s] = 0);
   baseParaGrafico.forEach(n => { contagensStatus[statusExcel(n)]++; });
-  const filtradosExcel = aplicarXlsFiltros(filtered, null);
+  // ordenarLista de novo aqui (09/11/2026, com COLUNAS_EXCEL) -- o
+  // `filtered` acima ja veio ordenado pelas colunas do Dashboard (se
+  // sortCol bater com um id de COLUNAS), mas os ids da Excel sao outros
+  // ("xcl_..."), entao precisa re-ordenar pra valer a ordenacao escolhida
+  // nessa tabela especificamente.
+  const filtradosExcel = ordenarLista(aplicarXlsFiltros(filtered, null), COLUNAS_EXCEL);
 
   // So a pagina atual de fato vira HTML (ver comentario em paginar() acima)
   // -- os arrays inteiros (filtered/filtradosExcel) continuam existindo
@@ -1426,10 +1431,14 @@ function opcoesColuna(col){
 // Ordenacao estilo Excel: clica no nome da coluna pra alternar crescente/
 // decrescente. Usa sortValor (numero ou data ISO) quando a coluna tem, senao
 // cai pro texto formatado da propria celula (valor()).
-function ordenarLista(lista){
-  const col = COLUNAS.find(c => c.id === sortCol);
+// `colunas` default COLUNAS (Dashboard); passa COLUNAS_EXCEL pra ordenar a
+// tabela da Versao Excel (09/11/2026) -- cada uma tem seus proprios ids
+// (prefixo "xcl_" na Excel), entao sortCol so bate com uma delas por vez:
+// trocar de view nao herda a ordenacao da outra tabela.
+function ordenarLista(lista, colunas = COLUNAS){
+  const col = colunas.find(c => c.id === sortCol);
   if(!col) return lista;
-  const extrai = c => n => c.sortValor ? c.sortValor(n) : String(c.valor(n) || "").toLowerCase();
+  const extrai = c => n => c.sortValor ? c.sortValor(n) : String(c.valor ? c.valor(n) : "").toLowerCase();
   const chave = extrai(col);
   const copia = [...lista];
   copia.sort((a, b) => {
@@ -1481,20 +1490,39 @@ const STATUS_EXCEL_CLASSES = {
 // botão de macro do Excel, o site já tem "Disparar cobrança" fazendo esse
 // papel). Pra voltar a mostrar alguma, e so adicionar de volta aqui + no
 // <td> correspondente em linhaExcel().
+// ids prefixados "xcl_" (09/11/2026, pedido de ordenar a tabela "como no
+// Excel", igual ja foi feito nos slicers) -- de proposito DIFERENTES dos
+// ids de COLUNAS (Dashboard), mesmo quando e' o mesmo campo, pra nao
+// misturar o sortCol/sortDir de uma tabela com o da outra ao trocar de
+// view (cada tabela guarda sua propria ordenacao). Ver ordenarLista() e os
+// botoes de ordenar em renderTabelaExcel().
 const COLUNAS_EXCEL = [
-  { label: "Possível Comprador", width: "170px" },
-  { label: "Nº NFe",             width: "80px" },
-  { label: "Fornecedor",         width: "240px" },
-  { label: "Data Emissão",       width: "100px" },
-  { label: "Empresa",            width: "220px" },
-  { label: "Vencimento",         width: "100px" },
-  { label: "Valor total",        width: "110px" },
-  { label: "Dias pendentes",     width: "90px" },
-  { label: "Dias até o vencimento", width: "100px" },
-  { label: "OBSERVAÇÃO",         width: "220px" },
-  { label: "STATUS",             width: "140px" },
-  { label: "DIAS DESDE EMISSÃO", width: "90px" },
-  { label: "SOLICITAR DESCONHECIMENTO", width: "150px" },
+  { id: "xcl_comprador",   label: "Possível Comprador", width: "170px",
+    sortValor: n => (n.possivel_comprador || "").toLowerCase() },
+  { id: "xcl_numero_nf",   label: "Nº NFe",             width: "80px",
+    sortValor: n => n.numero_nf || "" },
+  { id: "xcl_fornecedor",  label: "Fornecedor",         width: "240px",
+    sortValor: n => (n.fornecedor || "").toLowerCase() },
+  { id: "xcl_data_emissao", label: "Data Emissão",      width: "100px",
+    sortValor: n => n.data_emissao || "" },
+  { id: "xcl_empresa",     label: "Empresa",            width: "220px",
+    sortValor: n => (n.empresa || "").toLowerCase() },
+  { id: "xcl_vencimento",  label: "Vencimento",         width: "100px",
+    sortValor: n => n.vencimento || "" },
+  { id: "xcl_valor", num: true, label: "Valor total",   width: "110px",
+    sortValor: n => Number(n.valor_total || 0) },
+  { id: "xcl_dias_pendentes", num: true, label: "Dias pendentes", width: "90px",
+    sortValor: n => { const d = diasDesde(n.data_emissao); return d === null ? -Infinity : d; } },
+  { id: "xcl_dias_vencimento", num: true, label: "Dias até o vencimento", width: "100px",
+    sortValor: n => { const d = diasAteVencimento(n); return d === null ? -Infinity : d; } },
+  { id: "xcl_observacao",  label: "OBSERVAÇÃO",         width: "220px",
+    sortValor: n => (n.observacao || "").toLowerCase() },
+  { id: "xcl_status",      label: "STATUS",             width: "140px",
+    sortValor: n => statusExcel(n) },
+  { id: "xcl_dias_emissao2", num: true, label: "DIAS DESDE EMISSÃO", width: "90px",
+    sortValor: n => { const d = diasDesde(n.data_emissao); return d === null ? -Infinity : d; } },
+  { id: "xcl_solicitar",   label: "SOLICITAR DESCONHECIMENTO", width: "150px",
+    sortValor: n => { const d = diasDesde(n.data_emissao); return (d !== null && d > 60) ? 1 : 0; } },
 ];
 
 function linhaExcel(n, indice){
@@ -1683,7 +1711,13 @@ function renderTabelaExcel(rows){
         <tr>
           <th style="width:36px"></th>
           <th style="width:34px"><input type="checkbox" class="checkbox" id="checkAll" /></th>
-          ${COLUNAS_EXCEL.map(c => `<th style="width:${c.width}">${c.label}</th>`).join("")}
+          ${COLUNAS_EXCEL.map(c => `
+            <th style="width:${c.width}">
+              <button type="button" class="thSortBtn" data-sortcol="${c.id}" title="Ordenar por ${c.label}">
+                ${c.label}${sortCol === c.id ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+              </button>
+            </th>
+          `).join("")}
           ${mostrarColunaChaveNfe() ? '<th style="width:300px">Chave NF-e</th>' : ""}
         </tr>
       </thead>
