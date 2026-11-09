@@ -373,8 +373,12 @@
     display:flex; align-items:center; justify-content:space-between; gap:6px; padding:6px 9px;
     font-weight:700; font-size:11.5px; border-bottom:1px solid #E8A33D; background:var(--surface-2);
   }
-  .xlsSlicerClear{border:none; background:transparent; color:var(--text-dim); cursor:pointer; font-size:12px; line-height:1; padding:2px}
-  .xlsSlicerClear:hover{color:var(--text)}
+  .xlsSlicerCount{font-weight:400; color:var(--text-dim); font-size:10px; white-space:nowrap}
+  .xlsSlicerToolbar{display:flex; align-items:center; gap:3px; flex-wrap:wrap; padding:4px 6px; border-bottom:1px solid var(--border); background:var(--surface)}
+  .xlsSlicerAcao{border:1px solid var(--border); background:var(--surface-2); color:var(--text-dim); cursor:pointer; font-size:9.5px; line-height:1; padding:2.5px 5px; border-radius:4px; font-weight:600}
+  .xlsSlicerAcao:hover{color:var(--text); background:var(--surface)}
+  .xlsSlicerAcao.ativo{background:#FCE9D2; color:#8a5a12; border-color:#E8A33D}
+  .xlsSlicerToolbarSep{flex:1}
   .xlsSlicerBody{max-height:168px; overflow:auto}
   .xlsSlicerItem{
     display:flex; align-items:center; gap:7px; padding:6px 8px; font-size:12px; cursor:pointer;
@@ -471,6 +475,10 @@ let viewMode = "dashboard";
 // que tira as notas daquele valor do acompanhamento, ate marcar de novo.
 // Ver aplicarXlsFiltros() mais abaixo.
 let xlsFiltros = { comprador: new Set(), fornecedor: new Set(), empresa: new Set(), status: new Set() };
+// Ordenacao de cada lista de slicer (pedido em 09/11/2026, "classificar
+// como no Excel"): null = ordem padrao (alfabetica pros 3 primeiros, ordem
+// de negocio fixa pro STATUS), "asc" = A->Z, "desc" = Z->A. Ver renderSlicer.
+let xlsOrdemSlicer = { comprador: null, fornecedor: null, empresa: null, status: null };
 let searchTerm = "";
 let selected = new Set();
   // Default (02/10/2026): abre já no mesmo recorte que o Michel usa pra
@@ -1612,12 +1620,30 @@ function renderSlicer(titulo, campo, opcoes){
   const excluidos = xlsFiltros[campo];
   // Cada opcao pode ser uma string simples (comprador/fornecedor/status) ou
   // {chave,label} (empresa, ja agrupada -- ver opcoesEmpresaAgrupadas).
-  const itens = opcoes.map(o => typeof o === "string" ? { chave: o, label: o } : o);
+  let itens = opcoes.map(o => typeof o === "string" ? { chave: o, label: o } : o);
+  // Ordenacao A->Z / Z->A (pedido em 09/11/2026, "classificar como no
+  // Excel") -- aplica por cima da ordem padrao que veio em `opcoes`
+  // (alfabetica pros 3 primeiros slicers, ordem de negocio fixa pro
+  // STATUS_EXCEL_ORDEM). null/padrao mantem a ordem recebida.
+  const ordem = xlsOrdemSlicer[campo];
+  if(ordem === "asc") itens = [...itens].sort((a,b) => a.label.localeCompare(b.label, "pt-BR"));
+  else if(ordem === "desc") itens = [...itens].sort((a,b) => b.label.localeCompare(a.label, "pt-BR"));
+  // Lista de chaves pro botao "Nenhum" -- vai num atributo (encodeURIComponent
+  // evita qualquer problema de aspas/acentos no HTML) pra nao precisar
+  // recalcular opcoes no clique.
+  const chavesAttr = encodeURIComponent(JSON.stringify(itens.map(i => i.chave)));
   return `
     <div class="xlsSlicer">
       <div class="xlsSlicerHead">
         <span>${titulo}</span>
-        ${excluidos.size ? `<button type="button" class="xlsSlicerClear" data-slicerclear="${campo}" title="Marcar tudo de novo">✕ ${excluidos.size}</button>` : ""}
+        ${excluidos.size ? `<span class="xlsSlicerCount" title="${excluidos.size} oculto(s) nesse filtro">${excluidos.size} oculto(s)</span>` : ""}
+      </div>
+      <div class="xlsSlicerToolbar">
+        <button type="button" class="xlsSlicerAcao" data-slicertudo="${campo}" title="Marcar tudo">Tudo</button>
+        <button type="button" class="xlsSlicerAcao" data-slicernenhum="${campo}" data-chaves="${chavesAttr}" title="Desmarcar tudo (depois é só marcar o que quiser ver)">Nenhum</button>
+        <span class="xlsSlicerToolbarSep"></span>
+        <button type="button" class="xlsSlicerAcao ${ordem==='asc'?'ativo':''}" data-slicersort="${campo}" data-dir="asc" title="Ordenar A → Z">A-Z</button>
+        <button type="button" class="xlsSlicerAcao ${ordem==='desc'?'ativo':''}" data-slicersort="${campo}" data-dir="desc" title="Ordenar Z → A">Z-A</button>
       </div>
       <div class="xlsSlicerBody">
         ${itens.length ? itens.map(({chave, label}) => `
@@ -1823,10 +1849,35 @@ function wireApp(filtered){
       render();
     };
   });
-  document.querySelectorAll("[data-slicerclear]").forEach(btn => {
+  // "Tudo" / "Nenhum" (pedido em 09/11/2026): antes, pra deixar so UM valor
+  // marcado num slicer com muitas opcoes (ex: só um comprador), tinha que
+  // desmarcar um por um manualmente. Agora "Nenhum" desmarca tudo de uma vez
+  // (usando a lista de chaves que veio pronta no HTML, ver renderSlicer) e
+  // "Tudo" volta a marcar tudo -- daí é só marcar de volta o(s) que quiser.
+  document.querySelectorAll("[data-slicertudo]").forEach(btn => {
     btn.onclick = (e) => {
       e.stopPropagation();
-      xlsFiltros[btn.dataset.slicerclear].clear(); // volta a marcar tudo
+      xlsFiltros[btn.dataset.slicertudo].clear();
+      render();
+    };
+  });
+  document.querySelectorAll("[data-slicernenhum]").forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const campo = btn.dataset.slicernenhum;
+      const chaves = JSON.parse(decodeURIComponent(btn.dataset.chaves));
+      xlsFiltros[campo] = new Set(chaves);
+      render();
+    };
+  });
+  // Ordenar A-Z / Z-A (pedido em 09/11/2026, "classificar como no Excel") --
+  // clicar no botao ja ativo volta pra ordem padrao (toggle).
+  document.querySelectorAll("[data-slicersort]").forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const campo = btn.dataset.slicersort;
+      const dir = btn.dataset.dir;
+      xlsOrdemSlicer[campo] = (xlsOrdemSlicer[campo] === dir) ? null : dir;
       render();
     };
   });
