@@ -2227,7 +2227,10 @@ function openCobrancaModal(){
     <h3>Disparar e-mail de cobrança</h3>
     <p class="sub">Um e-mail será montado por comprador, pra Compras com cópia pro comprador e financeiro — igual já era feito na planilha.
       "Abrir no Outlook Web" abre pronto numa aba do navegador (nesse, por uma instabilidade conhecida do próprio Outlook com o campo Cc, os três entram direto como destinatário). "App de e-mail" abre no Outlook instalado no computador, já com Para/Cc separados como manda o padrão.</p>
-    <p class="sub" style="margin-top:-6px"><b>Dica:</b> se o Outlook Web abrir só a caixa de entrada (acontece quando ele pede login antes), volte aqui e clique em "Abrir no Outlook Web" de novo — agora já logado, a janela do e-mail abre com os destinatários e o assunto, e o texto continua copiado pra colar com Ctrl+V.</p>
+    <label class="sub" style="display:flex; gap:8px; align-items:flex-start; margin-top:-6px; cursor:pointer">
+      <input type="checkbox" id="chkLinkCurto" style="margin-top:3px" />
+      <span><b>Link curto</b> — marque se o Outlook Web der erro de login da Microsoft (AADSTS90015). O e-mail abre só com destinatários e assunto, e o texto é copiado pra você colar com Ctrl+V. Se abrir só a caixa de entrada, clique de novo no botão. O navegador lembra dessa escolha.</span>
+    </label>
     ${groupKeys.length ? groupKeys.map(nome => `
       <div class="maillink">
         <div>
@@ -2235,7 +2238,7 @@ function openCobrancaModal(){
           <div class="cnt">${groups[nome].notas.length} nota(s) · ${groups[nome].email}</div>
         </div>
         <div style="display:flex; gap:8px; flex:none">
-          <a class="btn small primary" data-copiarcorpo="${encodeURIComponent(cobrancaTexto(nome, groups[nome].notas).body)}" href="${buildOutlookWebLink(nome, groups[nome].email, groups[nome].notas)}" target="_blank" rel="noopener" title="Abre o e-mail e copia o texto pra você colar (Ctrl+V)">Abrir no Outlook Web</a>
+          <a class="btn small primary" data-copiarcorpo="${encodeURIComponent(cobrancaTexto(nome, groups[nome].notas).body)}" data-hrefcompleto="${buildOutlookWebLink(nome, groups[nome].email, groups[nome].notas, false)}" data-hrefcurto="${buildOutlookWebLink(nome, groups[nome].email, groups[nome].notas, true)}" href="${buildOutlookWebLink(nome, groups[nome].email, groups[nome].notas, false)}" target="_blank" rel="noopener">Abrir no Outlook Web</a>
           <a class="btn small ghost" href="${buildMailto(nome, groups[nome].email, groups[nome].notas)}" title="Abrir no app de e-mail padrão do computador">app de e-mail</a>
         </div>
       </div>
@@ -2249,17 +2252,25 @@ function openCobrancaModal(){
     </div>
   `;
   document.getElementById("closeModal").onclick = closeModal;
-  // "Abrir no Outlook Web": o link nao leva mais o corpo do e-mail (ver
-  // buildOutlookWebLink) -- o texto e' copiado aqui, no clique, pra colar.
+  // Caixinha "Link curto" (lembrada por navegador): quem tem o erro de login
+  // AADSTS90015 marca uma vez. Link curto = so destinatarios + assunto, e o
+  // texto vai pra area de transferencia no clique.
+  const chk = document.getElementById("chkLinkCurto");
+  try { chk.checked = localStorage.getItem("cobrancaLinkCurto") === "1"; } catch(e){}
+  chk.addEventListener("change", () => {
+    try { localStorage.setItem("cobrancaLinkCurto", chk.checked ? "1" : "0"); } catch(e){}
+  });
   modal.querySelectorAll("[data-copiarcorpo]").forEach(a => {
     a.addEventListener("click", () => {
+      if(!chk.checked){ a.href = a.dataset.hrefcompleto; return; }
+      a.href = a.dataset.hrefcurto;
       const corpo = decodeURIComponent(a.dataset.copiarcorpo);
-      const avisar = () => toast("Texto do e-mail copiado — cole no corpo com Ctrl+V");
+      const falhou = () => toast("Não consegui copiar o texto automaticamente — use o botão \"app de e-mail\"");
       if(navigator.clipboard && navigator.clipboard.writeText){
-        navigator.clipboard.writeText(corpo).then(avisar).catch(() => toast("Não consegui copiar o texto automaticamente — use o botão \"app de e-mail\""));
-      } else {
-        toast("Não consegui copiar o texto automaticamente — use o botão \"app de e-mail\"");
-      }
+        navigator.clipboard.writeText(corpo)
+          .then(() => toast("Texto do e-mail copiado — cole no corpo com Ctrl+V"))
+          .catch(falhou);
+      } else falhou();
     });
   });
   document.getElementById("modalBg").classList.add("show");
@@ -2324,9 +2335,9 @@ function paramsUri(obj){
 // usuario usa no navegador/PWA -- evita o mailto:, que no Windows costuma
 // abrir o app "novo Outlook" mesmo quando ele nao esta configurado com a
 // conta correta.
-function buildOutlookWebLink(nomeComprador, emailComprador, rows){
-  const { subject } = cobrancaTexto(nomeComprador, rows);
-  // CORRIGIDO (18/11/2026): o link NAO leva mais o corpo do e-mail. Com o
+function buildOutlookWebLink(nomeComprador, emailComprador, rows, curto = false){
+  const { subject, body } = cobrancaTexto(nomeComprador, rows);
+  // 18/11/2026: modo "curto" (opcional, caixinha no modal) NAO leva o corpo do e-mail. Com o
   // corpo inteiro (acentos/quebras de linha codificados, ~2-3 mil
   // caracteres ate com 1 nota so), quando a sessao Microsoft do navegador
   // expira o Outlook Web redireciona pro login embutindo esse link inteiro
@@ -2334,6 +2345,7 @@ function buildOutlookWebLink(nomeComprador, emailComprador, rows){
   // query string is too long") -- limpar cookies so resolvia ate a sessao
   // expirar de novo. Link curto (so destinatarios + assunto) nao estoura; o
   // corpo vai pra area de transferencia no clique (ver openCobrancaModal).
+  // Padrao continua sendo o link COMPLETO (texto ja preenchido).
   // OBS IMPORTANTE: o parametro "cc" do link do Outlook Web e reconhecidamente
   // instavel (bug do proprio Outlook, ja relatado por outras pessoas -- vezes
   // ele ignora "cc" completamente e so funciona numa segunda tentativa, mesmo
@@ -2344,6 +2356,7 @@ function buildOutlookWebLink(nomeComprador, emailComprador, rows){
   const query = paramsUri({
     to: `${EMAIL_PARA_COBRANCA},${emailComprador},${EMAIL_FINANCEIRO}`,
     subject,
+    ...(curto ? {} : { body }),
   });
   return `https://outlook.office.com/mail/deeplink/compose?${query}`;
 }
