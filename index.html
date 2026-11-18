@@ -2234,7 +2234,7 @@ function openCobrancaModal(){
           <div class="cnt">${groups[nome].notas.length} nota(s) · ${groups[nome].email}</div>
         </div>
         <div style="display:flex; gap:8px; flex:none">
-          <a class="btn small primary" href="${buildOutlookWebLink(nome, groups[nome].email, groups[nome].notas)}" target="_blank" rel="noopener">Abrir no Outlook Web</a>
+          <a class="btn small primary" data-copiarcorpo="${encodeURIComponent(cobrancaTexto(nome, groups[nome].notas).body)}" href="${buildOutlookWebLink(nome, groups[nome].email, groups[nome].notas)}" target="_blank" rel="noopener" title="Abre o e-mail e copia o texto pra você colar (Ctrl+V)">Abrir no Outlook Web</a>
           <a class="btn small ghost" href="${buildMailto(nome, groups[nome].email, groups[nome].notas)}" title="Abrir no app de e-mail padrão do computador">app de e-mail</a>
         </div>
       </div>
@@ -2248,6 +2248,19 @@ function openCobrancaModal(){
     </div>
   `;
   document.getElementById("closeModal").onclick = closeModal;
+  // "Abrir no Outlook Web": o link nao leva mais o corpo do e-mail (ver
+  // buildOutlookWebLink) -- o texto e' copiado aqui, no clique, pra colar.
+  modal.querySelectorAll("[data-copiarcorpo]").forEach(a => {
+    a.addEventListener("click", () => {
+      const corpo = decodeURIComponent(a.dataset.copiarcorpo);
+      const avisar = () => toast("Texto do e-mail copiado — cole no corpo com Ctrl+V");
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(corpo).then(avisar).catch(() => toast("Não consegui copiar o texto automaticamente — use o botão \"app de e-mail\""));
+      } else {
+        toast("Não consegui copiar o texto automaticamente — use o botão \"app de e-mail\"");
+      }
+    });
+  });
   document.getElementById("modalBg").classList.add("show");
 }
 
@@ -2311,7 +2324,15 @@ function paramsUri(obj){
 // abrir o app "novo Outlook" mesmo quando ele nao esta configurado com a
 // conta correta.
 function buildOutlookWebLink(nomeComprador, emailComprador, rows){
-  const { subject, body } = cobrancaTexto(nomeComprador, rows);
+  const { subject } = cobrancaTexto(nomeComprador, rows);
+  // CORRIGIDO (18/11/2026): o link NAO leva mais o corpo do e-mail. Com o
+  // corpo inteiro (acentos/quebras de linha codificados, ~2-3 mil
+  // caracteres ate com 1 nota so), quando a sessao Microsoft do navegador
+  // expira o Outlook Web redireciona pro login embutindo esse link inteiro
+  // na URL de autenticacao e o Azure AD recusa com AADSTS90015 ("Requested
+  // query string is too long") -- limpar cookies so resolvia ate a sessao
+  // expirar de novo. Link curto (so destinatarios + assunto) nao estoura; o
+  // corpo vai pra area de transferencia no clique (ver openCobrancaModal).
   // OBS IMPORTANTE: o parametro "cc" do link do Outlook Web e reconhecidamente
   // instavel (bug do proprio Outlook, ja relatado por outras pessoas -- vezes
   // ele ignora "cc" completamente e so funciona numa segunda tentativa, mesmo
@@ -2321,7 +2342,7 @@ function buildOutlookWebLink(nomeComprador, emailComprador, rows){
   // ao lado continua respeitando Para/Cc separados normalmente.
   const query = paramsUri({
     to: `${EMAIL_PARA_COBRANCA},${emailComprador},${EMAIL_FINANCEIRO}`,
-    subject, body,
+    subject,
   });
   return `https://outlook.office.com/mail/deeplink/compose?${query}`;
 }
